@@ -57,6 +57,13 @@ export EPOST_SERVICE_KEY='...'
 address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --status-col N --provider both --mark-missing
 ```
 
+특정 API만 검증할 수도 있습니다.
+
+```bash
+address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --status-col N --provider juso --mark-missing
+address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --status-col N --provider epost --mark-missing
+```
+
 N열 표시값:
 
 - `검색주소없음`: 원주소가 잘못됐거나 API 검색 결과가 0건입니다.

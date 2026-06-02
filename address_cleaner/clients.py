@@ -63,10 +63,10 @@ class KoreaPostRoadNameClient:
             raise RuntimeError("EPOST_SERVICE_KEY is required for Korea Post validation")
         params = {
             "ServiceKey": self.key,
-            "searchSe": search_se,
+            "searchse": search_se,
             "srchwrd": keyword,
-            "countPerPage": count,
-            "currentPage": 1,
+            "countperpage": count,
+            "currentpage": 1,
         }
         response = requests.get(self.endpoint, params=params, timeout=self.timeout)
         response.raise_for_status()
@@ -91,4 +91,3 @@ class KoreaPostRoadNameClient:
 def _text(root: ET.Element, path: str) -> str:
     value = root.findtext(path)
     return value.strip() if value else ""
-
