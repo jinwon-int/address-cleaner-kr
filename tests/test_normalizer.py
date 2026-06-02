@@ -1,6 +1,7 @@
 import openpyxl
 
 from address_cleaner.clients import SearchResult
+from address_cleaner.cli import main
 from address_cleaner.excel import STATUS_AMBIGUOUS, STATUS_NOT_FOUND, _verify, process_workbook
 from address_cleaner.normalizer import normalize_for_search, preprocess_raw_address
 
@@ -60,7 +61,31 @@ def test_excel_marks_invalid_source_as_not_found(tmp_path):
     assert stats["missing"] == 1
 
 
-def test_mark_missing_without_provider_does_not_mark_searchable_rows(tmp_path):
+def test_mark_missing_without_api_keys_raises(tmp_path):
+    input_path = tmp_path / "input.xlsx"
+    output_path = tmp_path / "output.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["H1"] = "원주소"
+    ws["H2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제1층 제101호"
+    wb.save(input_path)
+
+    try:
+        process_workbook(
+            input_path,
+            output_path,
+            source_col="H",
+            target_col="I",
+            status_col="N",
+            mark_missing=True,
+        )
+    except RuntimeError as exc:
+        assert "API key" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+
+def test_provider_none_with_mark_missing_does_not_mark_searchable_rows(tmp_path):
     input_path = tmp_path / "input.xlsx"
     output_path = tmp_path / "output.xlsx"
     wb = openpyxl.Workbook()
@@ -75,6 +100,7 @@ def test_mark_missing_without_provider_does_not_mark_searchable_rows(tmp_path):
         source_col="H",
         target_col="I",
         status_col="N",
+        provider="none",
         mark_missing=True,
     )
 
@@ -86,17 +112,74 @@ def test_mark_missing_without_provider_does_not_mark_searchable_rows(tmp_path):
 
 
 class _FakeJuso:
-    def __init__(self, total_count: int):
+    def __init__(self, total_count: int, error: bool = False):
         self.total_count = total_count
+        self.error = error
 
     def search(self, query: str, count: int = 5):
-        return SearchResult("juso", self.total_count, {}, {})
+        first = {"errorCode": "E"} if self.error else {}
+        return SearchResult("juso", self.total_count, first, {})
+
+
+class _FakeEpost:
+    def __init__(self, total_count: int, error: bool = False):
+        self.total_count = total_count
+        self.error = error
+
+    def search(self, query: str, search_se: str = "road", count: int = 5):
+        first = {"returnCode": "30"} if self.error else {}
+        return SearchResult("epost", self.total_count, first, "")
 
 
 def test_verify_marks_ambiguous_when_multiple_results():
     assert _verify("서울특별시 강남구 테헤란로 152", "road", _FakeJuso(2), None) == "ambiguous"
 
 
+def test_verify_marks_ambiguous_before_single_match():
+    assert _verify("서울특별시 강남구 테헤란로 152", "road", _FakeJuso(1), _FakeEpost(2)) == "ambiguous"
+
+
+def test_verify_ignores_one_provider_error_when_another_provider_works():
+    assert _verify("서울특별시 강남구 테헤란로 152", "road", _FakeJuso(1), _FakeEpost(0, error=True)) == "verified"
+
+
+def test_verify_raises_when_all_configured_providers_error():
+    try:
+        _verify("서울특별시 강남구 테헤란로 152", "road", _FakeJuso(0, error=True), None)
+    except RuntimeError as exc:
+        assert "API errors" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+
 def test_status_labels_are_user_facing_korean():
     assert STATUS_NOT_FOUND == "검색주소없음"
     assert STATUS_AMBIGUOUS == "2건이상검색"
+
+
+def test_cli_prints_clean_error_for_missing_api_keys(tmp_path, capsys):
+    input_path = tmp_path / "input.xlsx"
+    output_path = tmp_path / "output.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["H1"] = "원주소"
+    ws["H2"] = "경기도 파주시 야당동 57-17"
+    wb.save(input_path)
+
+    exit_code = main([
+        "excel",
+        str(input_path),
+        "-o",
+        str(output_path),
+        "--source-col",
+        "H",
+        "--target-col",
+        "I",
+        "--status-col",
+        "N",
+        "--mark-missing",
+    ])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.err.startswith("error: ")

@@ -18,6 +18,10 @@ class SearchResult:
     def found(self) -> bool:
         return self.total_count > 0
 
+    @property
+    def has_error(self) -> bool:
+        return "errorCode" in self.first or "returnCode" in self.first
+
 
 class JusoClient:
     endpoint = "https://business.juso.go.kr/addrlink/addrLinkApi.do"

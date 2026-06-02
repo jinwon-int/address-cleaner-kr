@@ -30,7 +30,7 @@ def process_workbook(
     source_col: str = "H",
     target_col: str = "I",
     status_col: str | None = None,
-    provider: ProviderMode = "none",
+    provider: ProviderMode = "both",
     mark_missing: bool = False,
     header: bool = True,
 ) -> dict[str, int]:
@@ -41,12 +41,18 @@ def process_workbook(
     status_idx = col_to_index(status_col) if status_col else None
 
     if header:
-        ws.cell(row=1, column=target_idx).value = "우체국API검색어"
+        ws.cell(row=1, column=target_idx).value = "주소검색어"
         if status_idx:
             ws.cell(row=1, column=status_idx).value = "주소검색결과"
 
     juso = JusoClient() if provider in ("juso", "both") else None
     epost = KoreaPostRoadNameClient() if provider in ("epost", "both") else None
+    if juso is not None and not juso.key:
+        juso = None
+    if epost is not None and not epost.key:
+        epost = None
+    if mark_missing and provider != "none" and juso is None and epost is None:
+        raise RuntimeError("At least one API key is required when --mark-missing validates provider results")
 
     stats = {
         "total": 0,
@@ -95,8 +101,11 @@ def _verify(query: str, kind: str, juso: JusoClient | None, epost: KoreaPostRoad
     if epost is not None:
         search_se = "road" if kind == "road" else "dong"
         results.append(epost.search(query, search_se=search_se, count=5))
-    if any(result.total_count == 1 for result in results):
-        return "verified"
-    if any(result.total_count >= 2 for result in results):
+    usable_results = [result for result in results if not result.has_error]
+    if not usable_results and results:
+        raise RuntimeError("Address validation providers returned API errors; check API keys before marking missing addresses")
+    if any(result.total_count >= 2 for result in usable_results):
         return "ambiguous"
+    if any(result.total_count == 1 for result in usable_results):
+        return "verified"
     return "missing"

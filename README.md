@@ -49,12 +49,12 @@ address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I
 address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --status-col N
 ```
 
-API 키가 활성화된 뒤 실제 검색 결과까지 N열에 표시:
+API 키가 활성화된 뒤 실제 검색 결과까지 N열에 표시합니다. 기본 provider는 `both`입니다.
 
 ```bash
 export JUSO_CONFIRM_KEY='...'
 export EPOST_SERVICE_KEY='...'
-address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --status-col N --provider both --mark-missing
+address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --status-col N --mark-missing
 ```
 
 특정 API만 검증할 수도 있습니다.
@@ -62,6 +62,7 @@ address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --
 ```bash
 address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --status-col N --provider juso --mark-missing
 address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --status-col N --provider epost --mark-missing
+address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --status-col N --provider both --mark-missing
 ```
 
 N열 표시값:

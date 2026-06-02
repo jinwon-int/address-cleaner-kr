@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 
 from .clients import JusoClient, KoreaPostRoadNameClient
 from .excel import process_workbook
@@ -22,7 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     p_excel.add_argument("--source-col", default="H")
     p_excel.add_argument("--target-col", default="I")
     p_excel.add_argument("--status-col")
-    p_excel.add_argument("--provider", choices=["none", "juso", "epost", "both"], default="none")
+    p_excel.add_argument("--provider", choices=["none", "juso", "epost", "both"], default="both")
     p_excel.add_argument("--mark-missing", action="store_true")
 
     p_probe = sub.add_parser("probe", help="Probe configured API key with one query")
@@ -35,15 +36,19 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(normalized.__dict__, ensure_ascii=False, indent=2))
         return 0
     if args.command == "excel":
-        stats = process_workbook(
-            Path(args.input),
-            Path(args.output),
-            source_col=args.source_col,
-            target_col=args.target_col,
-            status_col=args.status_col,
-            provider=args.provider,
-            mark_missing=args.mark_missing,
-        )
+        try:
+            stats = process_workbook(
+                Path(args.input),
+                Path(args.output),
+                source_col=args.source_col,
+                target_col=args.target_col,
+                status_col=args.status_col,
+                provider=args.provider,
+                mark_missing=args.mark_missing,
+            )
+        except RuntimeError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
         print(json.dumps(stats, ensure_ascii=False, indent=2))
         return 0
     if args.command == "probe":
@@ -60,4 +65,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
