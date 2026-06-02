@@ -5,11 +5,13 @@ from typing import Literal
 
 import openpyxl
 
-from .clients import JusoClient, KoreaPostRoadNameClient
+from .clients import JusoClient, KoreaPostRoadNameClient, SearchResult
 from .normalizer import normalize_for_search
 
 
 ProviderMode = Literal["none", "juso", "epost", "both"]
+STATUS_NOT_FOUND = "검색주소없음"
+STATUS_AMBIGUOUS = "2건이상검색"
 
 
 def col_to_index(col: str) -> int:
@@ -46,44 +48,55 @@ def process_workbook(
     juso = JusoClient() if provider in ("juso", "both") else None
     epost = KoreaPostRoadNameClient() if provider in ("epost", "both") else None
 
-    stats = {"total": 0, "road": 0, "lot": 0, "fallback": 0, "missing": 0, "verified": 0}
+    stats = {
+        "total": 0,
+        "road": 0,
+        "lot": 0,
+        "invalid": 0,
+        "missing": 0,
+        "ambiguous": 0,
+        "verified": 0,
+    }
     start_row = 2 if header else 1
     for row in range(start_row, ws.max_row + 1):
         raw = ws.cell(row=row, column=source_idx).value
         normalized = normalize_for_search(raw)
         ws.cell(row=row, column=target_idx).value = normalized.query
         stats["total"] += 1
-        stats[normalized.kind if normalized.kind in stats else "fallback"] += 1
+        stats[normalized.kind if normalized.kind in stats else "invalid"] += 1
 
         if status_idx:
             status = ""
-            if mark_missing:
-                found = _verify(normalized.query, normalized.kind, juso, epost)
-                if found:
-                    stats["verified"] += 1
-                else:
-                    status = "주소없음"
-                    stats["missing"] += 1
-            elif not normalized.searchable:
-                status = "주소없음"
+            if not normalized.searchable:
+                status = STATUS_NOT_FOUND
                 stats["missing"] += 1
+            elif mark_missing and (juso is not None or epost is not None):
+                verification = _verify(normalized.query, normalized.kind, juso, epost)
+                if verification == "verified":
+                    stats["verified"] += 1
+                elif verification == "ambiguous":
+                    status = STATUS_AMBIGUOUS
+                    stats["ambiguous"] += 1
+                else:
+                    status = STATUS_NOT_FOUND
+                    stats["missing"] += 1
             ws.cell(row=row, column=status_idx).value = status
 
     wb.save(output_path)
     return stats
 
 
-def _verify(query: str, kind: str, juso: JusoClient | None, epost: KoreaPostRoadNameClient | None) -> bool:
+def _verify(query: str, kind: str, juso: JusoClient | None, epost: KoreaPostRoadNameClient | None) -> Literal["verified", "ambiguous", "missing"]:
     if not query:
-        return False
+        return "missing"
+    results: list[SearchResult] = []
     if juso is not None:
-        result = juso.search(query, count=1)
-        if result.found:
-            return True
+        results.append(juso.search(query, count=5))
     if epost is not None:
         search_se = "road" if kind == "road" else "dong"
-        result = epost.search(query, search_se=search_se, count=1)
-        if result.found:
-            return True
-    return False
-
+        results.append(epost.search(query, search_se=search_se, count=5))
+    if any(result.total_count == 1 for result in results):
+        return "verified"
+    if any(result.total_count >= 2 for result in results):
+        return "ambiguous"
+    return "missing"

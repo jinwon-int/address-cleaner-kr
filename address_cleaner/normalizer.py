@@ -19,7 +19,7 @@ DETAIL_START_RE = re.compile(
     r"(?:제)?\d+호|[가-힣A-Za-z0-9_-]+(?:아파트|빌라|펠리스|타운|빌|맨션|하우스|오피스텔|주택|연립|다세대|상가)"
     r")\b"
 )
-ROAD_SUFFIXES = "대로|로|길|번길"
+ROAD_SUFFIXES = "번길|대로|로|길"
 ROAD_QUERY_RE = re.compile(
     rf"^(?P<prefix>.+?\s[가-힣0-9·.\-]+(?:{ROAD_SUFFIXES}))\s*"
     r"(?P<num>\d+(?:-\d+)?)\b"
@@ -28,6 +28,9 @@ LOT_QUERY_RE = re.compile(
     r"^(?P<prefix>.+?\s[가-힣0-9]+(?:동|읍|면|리|가))\s*"
     r"(?P<num>산?\s*\d+(?:-\d+)?)\b"
 )
+HANGUL_RE = re.compile(r"[가-힣]")
+ADDRESS_TOKEN_RE = re.compile(r"(?:특별시|광역시|특별자치시|특별자치도|도|시|군|구|읍|면|동|리|가|대로|번길|로|길)")
+ADDRESS_NUMBER_RE = re.compile(r"(?:산\s*)?\d+(?:-\d+)?")
 SQL_FILTER_RE = re.compile(r"[%=><\[\]]")
 SQL_WORD_RE = re.compile(
     r"\b(OR|SELECT|INSERT|DELETE|UPDATE|CREATE|DROP|EXEC|UNION|FETCH|DECLARE|TRUNCATE)\b",
@@ -162,6 +165,8 @@ def normalize_for_search(raw_addr: Any) -> NormalizedAddress:
         return NormalizedAddress(original=original, query="", kind="empty", status="empty")
     if cleaned in COMMON_INVALID_MARKERS:
         return NormalizedAddress(original=original, query="", kind="invalid", status="invalid_marker")
+    if _looks_malformed(cleaned):
+        return NormalizedAddress(original=original, query="", kind="invalid", status="malformed", detail=cleaned)
 
     base = cleaned
 
@@ -177,5 +182,16 @@ def normalize_for_search(raw_addr: Any) -> NormalizedAddress:
         return NormalizedAddress(original=original, query=query, kind="lot", status="ok", detail=cleaned[len(query):].strip())
 
     fallback = normalize_spaces(_cut_detail(cleaned))
-    status = "fallback" if fallback else "empty"
-    return NormalizedAddress(original=original, query=fallback, kind="fallback", status=status)
+    return NormalizedAddress(original=original, query="", kind="invalid", status="unrecognized", detail=fallback)
+
+
+def _looks_malformed(text: str) -> bool:
+    if len(text) < 5:
+        return True
+    if not HANGUL_RE.search(text):
+        return True
+    if not ADDRESS_TOKEN_RE.search(text):
+        return True
+    if not ADDRESS_NUMBER_RE.search(text):
+        return True
+    return False
