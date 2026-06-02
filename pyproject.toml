@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "address-cleaner-kr"
+version = "0.1.0"
+description = "Korean address normalization and API-searchable query generation for juso.go.kr and Korea Post."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "openpyxl>=3.1",
+  "pandas>=2.0",
+  "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+address-cleaner = "address_cleaner.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["address_cleaner"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

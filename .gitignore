@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+.env
+*.log
+address_processing_*.log
+*.xlsx
+!examples/*.xlsx
+_source/
+out/
+dist/
+build/
