@@ -13,6 +13,7 @@ except Exception:  # pragma: no cover - pandas is optional for plain text use.
 PAREN_CONTENT_RE = re.compile(r"\([^)]*\)")
 ZIPCODE_RE = re.compile(r"^\s*\d{5}\s+")
 ET_AL_RE = re.compile(r"외\s*\d+\s*(필지|건|목록)")
+FLOOR_DETAIL_RE = re.compile(r"(?<![가-힣0-9])(?:제\s*)?(?:지하\s*)?\d+\s*층(?![가-힣0-9])|(?<![가-힣0-9])(?:지층|반지하)(?![가-힣0-9])")
 DETAIL_START_RE = re.compile(
     r"\s+(?:"
     r"(?:제)?\d+동|(?:제)?[A-Za-z가-힣]동|(?:제)?\d+층|지하\s*\d*층?|"
@@ -149,6 +150,11 @@ def strip_api_unsafe_tokens(text: str) -> str:
     return normalize_spaces(text)
 
 
+def strip_floor_detail(text: str) -> str:
+    """Remove floor-only detail while preserving building, dong, and ho detail."""
+    return normalize_spaces(FLOOR_DETAIL_RE.sub(" ", text))
+
+
 def _cut_detail(text: str) -> str:
     text = PAREN_CONTENT_RE.sub(" ", text)
     text = normalize_spaces(text)
@@ -160,7 +166,7 @@ def _cut_detail(text: str) -> str:
 
 def normalize_for_search(raw_addr: Any) -> NormalizedAddress:
     original = to_addr_str(raw_addr)
-    cleaned = strip_api_unsafe_tokens(preprocess_raw_address(original))
+    cleaned = strip_floor_detail(strip_api_unsafe_tokens(preprocess_raw_address(original)))
     if not cleaned:
         return NormalizedAddress(original=original, query="", kind="empty", status="empty")
     if cleaned in COMMON_INVALID_MARKERS:
@@ -195,6 +201,27 @@ def normalize_for_search(raw_addr: Any) -> NormalizedAddress:
 
     fallback = normalize_spaces(_cut_detail(cleaned))
     return NormalizedAddress(original=original, query="", kind="invalid", status="unrecognized", detail=fallback)
+
+
+def compact_for_epost(query: str, kind: str) -> str:
+    """Build the short Korea Post query form for provider-specific fallback."""
+    cleaned = strip_floor_detail(strip_api_unsafe_tokens(preprocess_raw_address(query)))
+    if not cleaned:
+        return ""
+    if kind == "road":
+        match = ROAD_QUERY_RE.match(cleaned)
+        if not match:
+            return ""
+        road_name = normalize_spaces(match.group("prefix")).split()[-1]
+        return normalize_spaces(f"{road_name} {match.group('num')}")
+    if kind == "lot":
+        match = LOT_QUERY_RE.match(cleaned)
+        if not match:
+            return ""
+        lot_area = normalize_spaces(match.group("prefix")).split()[-1]
+        lot_no = re.sub(r"\s+", "", match.group("num"))
+        return normalize_spaces(f"{lot_area} {lot_no}")
+    return ""
 
 
 def _looks_malformed(text: str) -> bool:

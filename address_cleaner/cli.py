@@ -7,7 +7,7 @@ import sys
 
 from .clients import JusoClient, KoreaPostRoadNameClient
 from .excel import process_workbook
-from .normalizer import normalize_for_search
+from .normalizer import compact_for_epost, normalize_for_search
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -54,11 +54,23 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "probe":
         client = JusoClient() if args.provider == "juso" else KoreaPostRoadNameClient()
         if args.provider == "epost":
-            kind = normalize_for_search(args.query).kind
-            result = client.search(args.query, search_se="road" if kind == "road" else "dong")
+            normalized = normalize_for_search(args.query)
+            search_se = "road" if normalized.kind == "road" else "dong"
+            queries = [normalized.query or args.query]
+            compact_query = compact_for_epost(normalized.query or args.query, normalized.kind)
+            if compact_query and compact_query not in queries:
+                queries.append(compact_query)
+            result = None
+            query_used = queries[0]
+            for query in queries:
+                result = client.search(query, search_se=search_se)
+                query_used = query
+                if not result.has_error and result.total_count != 0:
+                    break
         else:
             result = client.search(args.query)
-        print(json.dumps({"provider": result.provider, "found": result.found, "total_count": result.total_count, "first": result.first}, ensure_ascii=False, indent=2))
+            query_used = args.query
+        print(json.dumps({"provider": result.provider, "query": query_used, "found": result.found, "total_count": result.total_count, "first": result.first}, ensure_ascii=False, indent=2))
         return 0
     return 1
 

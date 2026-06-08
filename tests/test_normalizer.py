@@ -3,26 +3,34 @@ import openpyxl
 from address_cleaner.clients import SearchResult
 from address_cleaner.cli import main
 from address_cleaner.excel import STATUS_AMBIGUOUS, STATUS_NOT_FOUND, _verify, process_workbook
-from address_cleaner.normalizer import normalize_for_search, preprocess_raw_address
+from address_cleaner.normalizer import compact_for_epost, normalize_for_search, preprocess_raw_address
 
 
 def test_lot_address_keeps_building_detail():
     result = normalize_for_search("경기도 파주시 야당동 57-17 정우펠리스 제303동 제1층 제101호")
-    assert result.query == "경기도 파주시 야당동 57-17 정우펠리스 제303동 제1층 제101호"
+    assert result.query == "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
     assert result.kind == "lot"
     assert result.searchable
 
 
 def test_lot_address_removes_extra_lot_marker():
     result = normalize_for_search("경기도 파주시 동패동 7외 1필지 노블타운 제102동 제4층 제401호")
-    assert result.query == "경기도 파주시 동패동 7 노블타운 제102동 제4층 제401호"
+    assert result.query == "경기도 파주시 동패동 7 노블타운 제102동 제401호"
     assert result.kind == "lot"
 
 
 def test_road_address_keeps_detail_after_building_number():
     result = normalize_for_search("서울특별시 강남구 테헤란로 152 강남파이낸스센터 10층")
-    assert result.query == "서울특별시 강남구 테헤란로 152 강남파이낸스센터 10층"
+    assert result.query == "서울특별시 강남구 테헤란로 152 강남파이낸스센터"
     assert result.kind == "road"
+
+
+def test_compact_for_epost_uses_road_name_and_building_number_only():
+    assert compact_for_epost("경기도 파주시 하우3길 22 정우펠리스 제303동 제101호", "road") == "하우3길 22"
+
+
+def test_compact_for_epost_uses_lot_area_and_lot_number_only():
+    assert compact_for_epost("경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호", "lot") == "야당동 57-17"
 
 
 def test_preprocess_repairs_missing_spaces():
@@ -106,7 +114,7 @@ def test_provider_none_with_mark_missing_does_not_mark_searchable_rows(tmp_path)
 
     result_wb = openpyxl.load_workbook(output_path)
     result_ws = result_wb.active
-    assert result_ws["I2"].value == "경기도 파주시 야당동 57-17 정우펠리스 제303동 제1층 제101호"
+    assert result_ws["I2"].value == "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
     assert result_ws["N2"].value is None
     assert stats["missing"] == 0
 
@@ -131,6 +139,17 @@ class _FakeEpost:
         return SearchResult("epost", self.total_count, first, "")
 
 
+class _FallbackEpost:
+    def __init__(self):
+        self.queries = []
+
+    def search(self, query: str, search_se: str = "road", count: int = 5):
+        self.queries.append((query, search_se))
+        if query == "하우3길 22":
+            return SearchResult("epost", 1, {}, "")
+        return SearchResult("epost", 0, {"returnCode": "01"}, "")
+
+
 def test_verify_marks_ambiguous_when_multiple_results():
     assert _verify("서울특별시 강남구 테헤란로 152", "road", _FakeJuso(2), None) == "ambiguous"
 
@@ -150,6 +169,16 @@ def test_verify_raises_when_all_configured_providers_error():
         assert "API errors" in str(exc)
     else:
         raise AssertionError("expected RuntimeError")
+
+
+def test_verify_falls_back_to_compact_epost_query():
+    epost = _FallbackEpost()
+    result = _verify("경기도 파주시 하우3길 22 정우펠리스 제303동 제101호", "road", None, epost)
+    assert result == "verified"
+    assert epost.queries == [
+        ("경기도 파주시 하우3길 22 정우펠리스 제303동 제101호", "road"),
+        ("하우3길 22", "road"),
+    ]
 
 
 def test_status_labels_are_user_facing_korean():

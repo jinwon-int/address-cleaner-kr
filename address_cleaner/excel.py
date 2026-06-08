@@ -6,7 +6,7 @@ from typing import Literal
 import openpyxl
 
 from .clients import JusoClient, KoreaPostRoadNameClient, SearchResult
-from .normalizer import normalize_for_search
+from .normalizer import compact_for_epost, normalize_for_search
 
 
 ProviderMode = Literal["none", "juso", "epost", "both"]
@@ -100,7 +100,23 @@ def _verify(query: str, kind: str, juso: JusoClient | None, epost: KoreaPostRoad
         results.append(juso.search(query, count=5))
     if epost is not None:
         search_se = "road" if kind == "road" else "dong"
-        results.append(epost.search(query, search_se=search_se, count=5))
+        epost_queries = [query]
+        compact_query = compact_for_epost(query, kind)
+        if compact_query and compact_query not in epost_queries:
+            epost_queries.append(compact_query)
+        for epost_query in epost_queries:
+            try:
+                result = epost.search(epost_query, search_se=search_se, count=5)
+            except Exception as exc:
+                result = SearchResult(
+                    "epost",
+                    0,
+                    {"returnCode": "transport_error", "returnMessage": str(exc)},
+                    "",
+                )
+            results.append(result)
+            if not result.has_error and result.total_count != 0:
+                break
     usable_results = [result for result in results if not result.has_error]
     if not usable_results and results:
         raise RuntimeError("Address validation providers returned API errors; check API keys before marking missing addresses")
