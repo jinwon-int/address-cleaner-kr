@@ -172,14 +172,26 @@ def normalize_for_search(raw_addr: Any) -> NormalizedAddress:
 
     road_match = ROAD_QUERY_RE.match(base)
     if road_match:
-        query = normalize_spaces(f"{road_match.group('prefix')} {road_match.group('num')}")
-        return NormalizedAddress(original=original, query=query, kind="road", status="ok", detail=cleaned[len(query):].strip())
+        base_query = normalize_spaces(f"{road_match.group('prefix')} {road_match.group('num')}")
+        return NormalizedAddress(
+            original=original,
+            query=cleaned,
+            kind="road",
+            status="ok",
+            detail=cleaned[len(base_query):].strip(),
+        )
 
     lot_match = LOT_QUERY_RE.match(base)
     if lot_match:
         lot_no = re.sub(r"\s+", "", lot_match.group("num"))
-        query = normalize_spaces(f"{lot_match.group('prefix')} {lot_no}")
-        return NormalizedAddress(original=original, query=query, kind="lot", status="ok", detail=cleaned[len(query):].strip())
+        base_query = normalize_spaces(f"{lot_match.group('prefix')} {lot_no}")
+        return NormalizedAddress(
+            original=original,
+            query=cleaned,
+            kind="lot",
+            status="ok",
+            detail=cleaned[len(base_query):].strip(),
+        )
 
     fallback = normalize_spaces(_cut_detail(cleaned))
     return NormalizedAddress(original=original, query="", kind="invalid", status="unrecognized", detail=fallback)

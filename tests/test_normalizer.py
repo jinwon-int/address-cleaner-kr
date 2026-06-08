@@ -6,22 +6,22 @@ from address_cleaner.excel import STATUS_AMBIGUOUS, STATUS_NOT_FOUND, _verify, p
 from address_cleaner.normalizer import normalize_for_search, preprocess_raw_address
 
 
-def test_lot_address_strips_building_detail():
+def test_lot_address_keeps_building_detail():
     result = normalize_for_search("경기도 파주시 야당동 57-17 정우펠리스 제303동 제1층 제101호")
-    assert result.query == "경기도 파주시 야당동 57-17"
+    assert result.query == "경기도 파주시 야당동 57-17 정우펠리스 제303동 제1층 제101호"
     assert result.kind == "lot"
     assert result.searchable
 
 
 def test_lot_address_removes_extra_lot_marker():
     result = normalize_for_search("경기도 파주시 동패동 7외 1필지 노블타운 제102동 제4층 제401호")
-    assert result.query == "경기도 파주시 동패동 7"
+    assert result.query == "경기도 파주시 동패동 7 노블타운 제102동 제4층 제401호"
     assert result.kind == "lot"
 
 
-def test_road_address_keeps_road_and_building_number():
+def test_road_address_keeps_detail_after_building_number():
     result = normalize_for_search("서울특별시 강남구 테헤란로 152 강남파이낸스센터 10층")
-    assert result.query == "서울특별시 강남구 테헤란로 152"
+    assert result.query == "서울특별시 강남구 테헤란로 152 강남파이낸스센터 10층"
     assert result.kind == "road"
 
 
@@ -106,7 +106,7 @@ def test_provider_none_with_mark_missing_does_not_mark_searchable_rows(tmp_path)
 
     result_wb = openpyxl.load_workbook(output_path)
     result_ws = result_wb.active
-    assert result_ws["I2"].value == "경기도 파주시 야당동 57-17"
+    assert result_ws["I2"].value == "경기도 파주시 야당동 57-17 정우펠리스 제303동 제1층 제101호"
     assert result_ws["N2"].value is None
     assert stats["missing"] == 0
 
