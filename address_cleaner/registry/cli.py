@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
+from ..clients import juso_key_from_env
 from .excel import (  # noqa: F401
     FINAL_COLUMNS,
     JUSO2_COLUMNS,
@@ -80,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--debug", action="store_true", help="오류 시 전체 traceback 출력")
     args = parser.parse_args(argv)
 
-    key = os.environ.get("JUSO_CONFM_KEY") or os.environ.get("JUSO_API_KEY") or os.environ.get("CONFM_KEY")
+    key = juso_key_from_env()
     if not key:
         print("ERROR: JUSO_CONFM_KEY 또는 JUSO_API_KEY 환경변수가 필요합니다.", file=sys.stderr)
         return 2

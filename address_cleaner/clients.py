@@ -2,9 +2,71 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+import time
 import xml.etree.ElementTree as ET
+from typing import Any
 
 import requests
+
+JUSO_ENDPOINT = "https://business.juso.go.kr/addrlink/addrLinkApi.do"
+
+# 일반 정제 모드와 등기소 모드가 서로 다른 이름을 써 왔어서 둘 다 허용한다.
+JUSO_KEY_ENV_VARS = ("JUSO_CONFIRM_KEY", "JUSO_CONFM_KEY", "JUSO_API_KEY", "CONFM_KEY")
+EPOST_KEY_ENV_VARS = ("EPOST_SERVICE_KEY", "KOREAPOST_SERVICE_KEY")
+
+
+def juso_key_from_env() -> str | None:
+    for name in JUSO_KEY_ENV_VARS:
+        value = os.getenv(name)
+        if value:
+            return value
+    return None
+
+
+def request_juso(
+    key: str,
+    keyword: str,
+    count: int = 10,
+    *,
+    timeout: float = 15.0,
+    session: requests.Session | None = None,
+    retries: int = 3,
+) -> dict[str, Any]:
+    """Juso API 한 번 호출. 일시적 네트워크 오류/비정상 응답은 지수 백오프로 재시도한다."""
+    params = {
+        "confmKey": key,
+        "currentPage": "1",
+        "countPerPage": str(count),
+        "keyword": keyword,
+        "resultType": "json",
+    }
+    get = session.get if session is not None else requests.get
+    data: dict[str, Any] = {}
+    for attempt in range(retries + 1):
+        try:
+            response = get(JUSO_ENDPOINT, params=params, timeout=timeout)
+            response.raise_for_status()
+            data = response.json()
+            break
+        except (requests.RequestException, ValueError):
+            if attempt == retries:
+                raise
+            time.sleep(2**attempt)
+    common = data.get("results", {}).get("common", {})
+    code = str(common.get("errorCode", ""))
+    if code not in {"0", "00"}:
+        return {
+            "total": 0,
+            "rows": [],
+            "error_code": code,
+            "error_message": common.get("errorMessage", ""),
+            "raw": data,
+        }
+    return {
+        "total": int(common.get("totalCount") or 0),
+        "rows": data.get("results", {}).get("juso") or [],
+        "raw": data,
+    }
 
 
 @dataclass
@@ -24,32 +86,25 @@ class SearchResult:
 
 
 class JusoClient:
-    endpoint = "https://business.juso.go.kr/addrlink/addrLinkApi.do"
+    endpoint = JUSO_ENDPOINT
 
     def __init__(self, key: str | None = None, timeout: float = 5.0):
-        self.key = key or os.getenv("JUSO_CONFIRM_KEY") or os.getenv("JUSO_API_KEY")
+        self.key = key or juso_key_from_env()
         self.timeout = timeout
 
     def search(self, keyword: str, count: int = 10) -> SearchResult:
         if not self.key:
             raise RuntimeError("JUSO_CONFIRM_KEY is required for juso.go.kr validation")
-        params = {
-            "confmKey": self.key,
-            "currentPage": 1,
-            "countPerPage": count,
-            "keyword": keyword,
-            "resultType": "json",
-        }
-        response = requests.get(self.endpoint, params=params, timeout=self.timeout)
-        response.raise_for_status()
-        data = response.json()
-        common = data.get("results", {}).get("common", {})
-        error_code = common.get("errorCode")
-        if error_code != "0":
-            return SearchResult("juso", 0, {"errorCode": error_code, "errorMessage": common.get("errorMessage")}, data)
-        total = int(common.get("totalCount") or 0)
-        rows = data.get("results", {}).get("juso") or []
-        return SearchResult("juso", total, rows[0] if rows else {}, data)
+        result = request_juso(self.key, keyword, count, timeout=self.timeout)
+        if "error_code" in result:
+            return SearchResult(
+                "juso",
+                0,
+                {"errorCode": result["error_code"], "errorMessage": result["error_message"]},
+                result["raw"],
+            )
+        rows = result["rows"]
+        return SearchResult("juso", result["total"], rows[0] if rows else {}, result["raw"])
 
 
 class KoreaPostRoadNameClient:
@@ -59,7 +114,7 @@ class KoreaPostRoadNameClient:
     )
 
     def __init__(self, key: str | None = None, timeout: float = 5.0):
-        self.key = key or os.getenv("EPOST_SERVICE_KEY") or os.getenv("KOREAPOST_SERVICE_KEY")
+        self.key = next((os.getenv(name) for name in EPOST_KEY_ENV_VARS if os.getenv(name)), None) if key is None else key
         self.timeout = timeout
 
     def search(self, keyword: str, search_se: str = "road", count: int = 10) -> SearchResult:
@@ -67,10 +122,10 @@ class KoreaPostRoadNameClient:
             raise RuntimeError("EPOST_SERVICE_KEY is required for Korea Post validation")
         params = {
             "ServiceKey": self.key,
-            "searchse": search_se,
+            "searchSe": search_se,
             "srchwrd": keyword,
-            "countperpage": count,
-            "currentpage": 1,
+            "countPerPage": count,
+            "currentPage": 1,
         }
         response = requests.get(self.endpoint, params=params, timeout=self.timeout)
         response.raise_for_status()
@@ -86,7 +141,9 @@ class KoreaPostRoadNameClient:
             )
         total = int(_text(root, ".//totalCount") or _text(root, ".//totalCnt") or "0")
         first = {}
-        item = root.find(".//newAddressListAreaCd") or root.find(".//item")
+        item = root.find(".//newAddressListAreaCd")
+        if item is None:
+            item = root.find(".//item")
         if item is not None:
             first = {child.tag: child.text for child in list(item)}
         return SearchResult("epost", total, first, text)
