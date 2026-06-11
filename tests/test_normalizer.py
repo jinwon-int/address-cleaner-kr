@@ -1,4 +1,4 @@
-import tomllib
+from pathlib import Path
 
 import openpyxl
 import requests
@@ -361,6 +361,6 @@ def test_registry_subcommand_delegates_to_registry_refiner(tmp_path, capsys, mon
 
 
 def test_registry_address_refine_console_script_is_kept_for_compatibility():
-    data = tomllib.loads(open("pyproject.toml", "rb").read().decode("utf-8"))
+    pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
-    assert data["project"]["scripts"]["registry-address-refine"] == "address_cleaner.registry.cli:main"
+    assert 'registry-address-refine = "address_cleaner.registry.cli:main"' in pyproject
