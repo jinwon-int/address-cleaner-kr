@@ -1,6 +1,7 @@
 import tomllib
 
 import openpyxl
+import requests
 
 from address_cleaner.clients import SearchResult
 from address_cleaner.cli import main
@@ -25,6 +26,12 @@ def test_road_address_keeps_detail_after_building_number():
     result = normalize_for_search("서울특별시 강남구 테헤란로 152 강남파이낸스센터 10층")
     assert result.query == "서울특별시 강남구 테헤란로 152 강남파이낸스센터"
     assert result.kind == "road"
+
+
+def test_lot_detail_excludes_spaced_mountain_lot_number():
+    result = normalize_for_search("서울특별시 강남구 역삼동 산 12-3 어떤빌라 101호")
+    assert result.kind == "lot"
+    assert result.detail == "어떤빌라 101호"
 
 
 def test_compact_for_epost_uses_road_name_and_building_number_only():
@@ -173,6 +180,60 @@ def test_verify_raises_when_all_configured_providers_error():
         raise AssertionError("expected RuntimeError")
 
 
+class _RaisingJuso:
+    key = "test-key"
+
+    def search(self, query: str, count: int = 5):
+        raise requests.ConnectionError("network down")
+
+
+def test_verify_tolerates_juso_transport_error_when_epost_works():
+    assert _verify("서울특별시 강남구 테헤란로 152", "road", _RaisingJuso(), _FakeEpost(1)) == "verified"
+
+
+def test_verify_raises_when_transport_error_hits_the_only_provider():
+    try:
+        _verify("서울특별시 강남구 테헤란로 152", "road", _RaisingJuso(), None)
+    except RuntimeError as exc:
+        assert "API errors" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+
+def test_process_workbook_reuses_verification_for_repeated_addresses(tmp_path, monkeypatch):
+    calls: list[str] = []
+
+    class _CountingJuso:
+        key = "test-key"
+
+        def search(self, query: str, count: int = 5):
+            calls.append(query)
+            return SearchResult("juso", 1, {}, {})
+
+    monkeypatch.setattr("address_cleaner.excel.JusoClient", _CountingJuso)
+    input_path = tmp_path / "input.xlsx"
+    output_path = tmp_path / "output.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["H1"] = "원주소"
+    ws["H2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    ws["H3"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    wb.save(input_path)
+
+    stats = process_workbook(
+        input_path,
+        output_path,
+        source_col="H",
+        target_col="I",
+        status_col="N",
+        provider="juso",
+        mark_missing=True,
+    )
+
+    assert stats["verified"] == 2
+    assert len(calls) == 1
+
+
 def test_verify_falls_back_to_compact_epost_query():
     epost = _FallbackEpost()
     result = _verify("경기도 파주시 하우3길 22 정우펠리스 제303동 제101호", "road", None, epost)
@@ -223,6 +284,7 @@ def test_registry_subcommand_delegates_to_registry_refiner(tmp_path, capsys, mon
     ws["A1"] = "대상 임대차계약 주소"
     ws["A2"] = "서울특별시 강남구 역삼동 123-4 101호"
     wb.save(input_path)
+    monkeypatch.delenv("JUSO_CONFIRM_KEY", raising=False)
     monkeypatch.delenv("JUSO_CONFM_KEY", raising=False)
     monkeypatch.delenv("JUSO_API_KEY", raising=False)
     monkeypatch.delenv("CONFM_KEY", raising=False)

@@ -61,6 +61,8 @@ export EPOST_SERVICE_KEY='...'
 address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --status-col N --mark-missing
 ```
 
+Juso 키는 모든 모드에서 `JUSO_CONFIRM_KEY`, `JUSO_CONFM_KEY`, `JUSO_API_KEY` 어느 이름으로 설정해도 인식합니다.
+
 특정 API만 검증할 수도 있습니다.
 
 ```bash

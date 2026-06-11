@@ -20,6 +20,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="address-cleaner")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    # registry는 위에서 자체 파서로 위임되므로 여기 등록은 --help 노출용이다.
+    sub.add_parser(
+        "registry",
+        help="법원 등기부등본 열람페이지 전체검색용 주소 생성 (registry-address-refine --help 참고)",
+        add_help=False,
+    )
+
     p_norm = sub.add_parser("normalize", help="Normalize one address into an API-searchable query")
     p_norm.add_argument("address")
 

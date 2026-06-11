@@ -64,6 +64,8 @@ def process_workbook(
         "verified": 0,
     }
     start_row = 2 if header else 1
+    # 같은 원주소가 여러 행에 반복되는 파일이 흔해서 검증 결과를 재사용한다.
+    verify_cache: dict[tuple[str, str], str] = {}
     for row in range(start_row, ws.max_row + 1):
         raw = ws.cell(row=row, column=source_idx).value
         normalized = normalize_for_search(raw)
@@ -77,7 +79,11 @@ def process_workbook(
                 status = STATUS_NOT_FOUND
                 stats["missing"] += 1
             elif mark_missing and (juso is not None or epost is not None):
-                verification = _verify(normalized.query, normalized.kind, juso, epost)
+                cache_key = (normalized.query, normalized.kind)
+                verification = verify_cache.get(cache_key)
+                if verification is None:
+                    verification = _verify(normalized.query, normalized.kind, juso, epost)
+                    verify_cache[cache_key] = verification
                 if verification == "verified":
                     stats["verified"] += 1
                 elif verification == "ambiguous":
@@ -97,7 +103,14 @@ def _verify(query: str, kind: str, juso: JusoClient | None, epost: KoreaPostRoad
         return "missing"
     results: list[SearchResult] = []
     if juso is not None:
-        results.append(juso.search(query, count=5))
+        try:
+            results.append(juso.search(query, count=5))
+        except Exception as exc:
+            # 재시도 후에도 남은 전송 오류는 다른 provider 결과로 판정을 이어가고,
+            # 모든 provider가 오류면 아래에서 실행을 중단한다.
+            results.append(
+                SearchResult("juso", 0, {"errorCode": "transport_error", "errorMessage": str(exc)}, "")
+            )
     if epost is not None:
         search_se = "road" if kind == "road" else "dong"
         epost_queries = [query]

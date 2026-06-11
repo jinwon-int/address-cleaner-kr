@@ -9,6 +9,7 @@ from typing import Any
 
 import requests
 
+from ..clients import JUSO_ENDPOINT, request_juso
 from .normalize import (
     building_tokens,
     clean_raw,
@@ -23,7 +24,7 @@ from .normalize import (
     strip_unit,
 )
 
-API_URL = "https://business.juso.go.kr/addrlink/addrLinkApi.do"
+API_URL = JUSO_ENDPOINT
 
 
 def load_cache(cache_file: Path) -> dict[str, Any]:
@@ -49,26 +50,11 @@ def juso_query(session: requests.Session, key: str, keyword: str, cache: dict[st
     cache_key = f"{'raw' if preserve_commas else 'clean'}:{count}:{keyword}"
     if cache_key in cache:
         return cache[cache_key]
-    params = {"confmKey": key, "currentPage": "1", "countPerPage": str(count), "keyword": keyword, "resultType": "json"}
-    data: dict[str, Any] = {}
-    for attempt in range(4):
-        try:
-            r = session.get(API_URL, params=params, timeout=15)
-            r.raise_for_status()
-            data = r.json()
-            break
-        except (requests.RequestException, ValueError):
-            # 일시적인 네트워크 오류/비정상 응답으로 수백 건짜리 실행 전체가
-            # 중단되지 않도록 지수 백오프로 재시도한다.
-            if attempt == 3:
-                raise
-            time.sleep(2**attempt)
-    common = data.get("results", {}).get("common", {})
-    code = str(common.get("errorCode", ""))
-    if code not in {"0", "00"}:
-        res = {"keyword": keyword, "total": 0, "rows": [], "error": common.get("errorMessage", "")}
+    data = request_juso(key, keyword, count, timeout=15, session=session)
+    if "error_code" in data:
+        res = {"keyword": keyword, "total": 0, "rows": [], "error": data["error_message"]}
     else:
-        res = {"keyword": keyword, "total": int(common.get("totalCount") or 0), "rows": (data.get("results", {}).get("juso") or [])[:count]}
+        res = {"keyword": keyword, "total": data["total"], "rows": data["rows"][:count]}
     cache[cache_key] = res
     time.sleep(0.04)
     return res
