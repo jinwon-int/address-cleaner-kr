@@ -58,6 +58,7 @@ def process_workbook(
         "total": 0,
         "road": 0,
         "lot": 0,
+        "empty": 0,
         "invalid": 0,
         "missing": 0,
         "ambiguous": 0,
@@ -75,7 +76,11 @@ def process_workbook(
 
         if status_idx:
             status = ""
-            if not normalized.searchable:
+            if normalized.kind == "empty":
+                # 원주소가 비어 있는 행(서식만 남은 말미 행 포함)은 검토 대상이
+                # 아니므로 상태를 비워 둬 후단 자동화가 불량 주소와 혼동하지 않게 한다.
+                pass
+            elif not normalized.searchable:
                 status = STATUS_NOT_FOUND
                 stats["missing"] += 1
             elif mark_missing and (juso is not None or epost is not None):

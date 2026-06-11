@@ -364,3 +364,68 @@ def test_registry_address_refine_console_script_is_kept_for_compatibility():
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
     assert 'registry-address-refine = "address_cleaner.registry.cli:main"' in pyproject
+
+
+def test_preprocess_cuts_repeated_legacy_sido_names():
+    assert (
+        preprocess_raw_address("강원도 춘천시 중앙로 1 강원도 춘천시 중앙로 1")
+        == "강원도 춘천시 중앙로 1"
+    )
+
+
+def test_road_address_without_district_is_searchable():
+    result = normalize_for_search("테헤란로 152 강남파이낸스센터 10층")
+    assert result.kind == "road"
+    assert result.query == "테헤란로 152 강남파이낸스센터"
+    assert result.searchable
+
+
+def test_empty_source_rows_keep_status_blank(tmp_path):
+    input_path = tmp_path / "input.xlsx"
+    output_path = tmp_path / "output.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["H1"] = "원주소"
+    ws["H2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    ws["A3"] = "서식만 남은 행"
+    wb.save(input_path)
+
+    stats = process_workbook(
+        input_path,
+        output_path,
+        source_col="H",
+        target_col="I",
+        status_col="M",
+        provider="none",
+    )
+
+    result_ws = openpyxl.load_workbook(output_path).active
+    assert result_ws["M2"].value in (None, "")
+    assert result_ws["M3"].value in (None, "")
+    assert stats["empty"] == 1
+
+
+def test_epost_search_retries_transient_errors(monkeypatch):
+    from address_cleaner import clients
+
+    calls = {"n": 0}
+
+    class _Resp:
+        text = "<root><returnCode>00</returnCode><totalCount>1</totalCount></root>"
+
+        def raise_for_status(self):
+            return None
+
+    def fake_get(url, params=None, timeout=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise requests.ConnectionError("일시적 네트워크 오류")
+        return _Resp()
+
+    monkeypatch.setattr(clients.requests, "get", fake_get)
+    monkeypatch.setattr(clients.time, "sleep", lambda s: None)
+
+    result = clients.KoreaPostRoadNameClient(key="k").search("테헤란로 152")
+
+    assert result.total_count == 1
+    assert calls["n"] == 2

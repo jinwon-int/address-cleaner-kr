@@ -21,8 +21,11 @@ DETAIL_START_RE = re.compile(
     r")\b"
 )
 ROAD_SUFFIXES = "번길|대로|로|길"
+# 도로명은 시군구가 생략된 원주소('테헤란로 152 ...')도 검색어로 살린다.
+# 단일 여부는 API 검증(2건이상검색)으로 가린다. 지번(LOT)은 동명이 전국에
+# 많아 행정구역 없는 매치를 주소로 보지 않는 기존 정책을 유지한다.
 ROAD_QUERY_RE = re.compile(
-    rf"^(?P<prefix>.+?\s[가-힣0-9·.\-]+(?:{ROAD_SUFFIXES}))\s*"
+    rf"^(?P<prefix>(?:.+?\s)?[가-힣0-9·.\-]+(?:{ROAD_SUFFIXES}))\s*"
     r"(?P<num>\d+(?:-\d+)?)\b"
 )
 LOT_QUERY_RE = re.compile(
@@ -80,11 +83,13 @@ def preprocess_raw_address(raw_addr: Any) -> str:
     text = re.sub(r"[\x00-\x1f]", " ", text)
     text = ZIPCODE_RE.sub("", text).strip()
 
+    # 개편 전 명칭(강원도/전라북도/제주도)으로 적힌 원주소도 흔해서 함께 둔다.
+    # 신명칭이 구명칭을 부분 문자열로 포함하지 않아 긴 이름을 먼저 검사할 필요는 없다.
     sido_keywords = [
         "서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시",
         "대전광역시", "울산광역시", "세종특별자치시", "경기도", "강원특별자치도",
         "충청북도", "충청남도", "전북특별자치도", "전라남도", "경상북도",
-        "경상남도", "제주특별자치도",
+        "경상남도", "제주특별자치도", "강원도", "전라북도", "제주도",
     ]
     for sido in sido_keywords:
         if text.count(sido) >= 2:
