@@ -13,7 +13,12 @@ except Exception:  # pragma: no cover - pandas is optional for plain text use.
 PAREN_CONTENT_RE = re.compile(r"\([^)]*\)")
 ZIPCODE_RE = re.compile(r"^\s*\d{5}\s+")
 ET_AL_RE = re.compile(r"외\s*\d+\s*(필지|건|목록)")
-FLOOR_DETAIL_RE = re.compile(r"(?<![가-힣0-9])(?:제\s*)?(?:지하\s*)?\d+\s*층(?![가-힣0-9])|(?<![가-힣0-9])(?:지층|반지하)(?![가-힣0-9])")
+FLOOR_DETAIL_RE = re.compile(
+    # '제1(상층하층)층' 같은 복층 표기는 괄호가 끼어 있어도 층 정보로 보고 제거한다.
+    r"(?<![가-힣0-9])(?:제\s*)?(?:지하\s*)?\d+\s*\([^)]*\)\s*층(?![가-힣0-9])"
+    r"|(?<![가-힣0-9])(?:제\s*)?(?:지하\s*)?\d+\s*층(?![가-힣0-9])"
+    r"|(?<![가-힣0-9])(?:지층|반지하)(?![가-힣0-9])"
+)
 DETAIL_START_RE = re.compile(
     r"\s+(?:"
     r"(?:제)?\d+동|(?:제)?[A-Za-z가-힣]동|(?:제)?\d+층|지하\s*\d*층?|"

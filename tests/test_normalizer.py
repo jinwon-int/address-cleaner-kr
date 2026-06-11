@@ -429,3 +429,10 @@ def test_epost_search_retries_transient_errors(monkeypatch):
 
     assert result.total_count == 1
     assert calls["n"] == 2
+
+
+def test_duplex_floor_detail_with_parenthetical_is_removed():
+    # 실제 전산 입력 실패 사례: '제1(상층하층)층'이 검색어에 남아 우편번호 확정 실패.
+    result = normalize_for_search("경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제1(상층하층)층 제101호")
+    assert result.query == "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제101호"
+    assert result.kind == "lot"

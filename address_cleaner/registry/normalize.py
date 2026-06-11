@@ -96,6 +96,7 @@ def clean_raw(value: Any) -> str:
     s = re.sub(r"\s*외\s*\d+\s*필지", "", s)
     s = re.sub(r"제\s*(\d+)\s*동", r"\1동", s)
     s = re.sub(r"제\s*([가-힣A-Za-z])\s*동", r"\1동", s)
+    s = re.sub(r"제\s*(\d+)\s*\([^)]*\)\s*층", r"\1층", s)  # 제1(상층하층)층 같은 복층 표기
     s = re.sub(r"제\s*(\d+)\s*층", r"\1층", s)
     s = re.sub(r"제\s*([가-힣A-Za-z]?\d{1,4})\s*호", r"\1호", s)
     s = re.sub(r"제\s*([가-힣A-Za-z])\s*(\d{3,4})\s*호", r"\1동 \2호", s)
