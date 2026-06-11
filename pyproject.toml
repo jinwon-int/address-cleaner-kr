@@ -17,6 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0",
+  "ruff>=0.5",
 ]
 
 [project.scripts]
@@ -28,3 +29,7 @@ packages = ["address_cleaner"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+# legacy/는 참고용으로 보존하는 원본 스크립트라 린트 대상에서 제외한다.
+extend-exclude = ["legacy"]
