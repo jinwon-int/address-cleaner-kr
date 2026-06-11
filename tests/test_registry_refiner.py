@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from address_cleaner.registry.juso import make_queries
+from address_cleaner.registry.juso import first_pass_status, make_queries
 from address_cleaner.registry.normalize import (
     clean_raw,
     has_extra_parcels,
@@ -139,6 +139,30 @@ class UnderSpecifiedTest(unittest.TestCase):
     def test_building_name_is_specified(self) -> None:
         self.assertFalse(original_is_under_specified("서울특별시 성동구 마장동 가람빌리지 801호"))
 
+
+
+
+class RegistryExactOnePolicyTest(unittest.TestCase):
+    def test_first_pass_marks_zero_results_as_not_found(self) -> None:
+        status, best = first_pass_status({"total": 0, "keyword": "원문", "rows": []}, None)
+
+        self.assertEqual(status, "검색불가")
+        self.assertEqual(best["total"], 0)
+
+    def test_first_pass_marks_multiple_original_results_as_ambiguous(self) -> None:
+        status, best = first_pass_status({"total": 2, "keyword": "원문", "rows": [{}, {}]}, None)
+
+        self.assertEqual(status, "다중검출_원문")
+        self.assertEqual(best["total"], 2)
+
+    def test_first_pass_marks_multiple_normalized_results_as_ambiguous(self) -> None:
+        status, best = first_pass_status(
+            {"total": 0, "keyword": "원문", "rows": []},
+            {"total": 3, "keyword": "상세제거", "rows": [{}, {}, {}]},
+        )
+
+        self.assertEqual(status, "다중검출_상세주소제거")
+        self.assertEqual(best["total"], 3)
 
 class BackwardCompatImportTest(unittest.TestCase):
     def test_cli_still_re_exports_refactored_functions(self) -> None:
