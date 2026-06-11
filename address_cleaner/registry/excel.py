@@ -195,6 +195,7 @@ def refine(input_file: Path, output_dir: Path, key: str, cache_file: Path | None
     for r in range(2, ws.max_row + 1):
         raw = get_cell(ws, r, headers, "대상 임대차계약 주소")
         final = source_addr(r)
+        juso1 = norm(get_cell(ws, r, headers, "JUSO_판정"))
         juso2 = norm(get_cell(ws, r, headers, "JUSO_2차판정"))
         rec_jibun = get_cell(ws, r, headers, "JUSO_추천지번주소")
         base_jibun = get_cell(ws, r, headers, "JUSO_지번주소_1")
@@ -205,6 +206,8 @@ def refine(input_file: Path, output_dir: Path, key: str, cache_file: Path | None
         prop = "집합건물" if unit["ho"] else "부동산구분 확인필요"
         phrase = norm(" ".join(x for x in [lot["addr"], bname, suffix_dong(unit["bld_dong"]), suffix_ho(unit["ho"])] if x))
         reasons: list[str] = []
+        if juso1 == "검색불가" or juso1.startswith("다중검출"):
+            reasons.append(f"Juso 1차 {juso1}")
         if original_is_under_specified(raw):
             reasons.append("원문 식별정보 부족: 지번/도로명건물번호/건물명 없이 법정동+호수만 있음")
         if not lot["addr"]:

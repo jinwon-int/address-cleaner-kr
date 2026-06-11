@@ -4,7 +4,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+import openpyxl
+
+from address_cleaner.registry.excel import refine
 from address_cleaner.registry.juso import first_pass_status, make_queries
 from address_cleaner.registry.normalize import (
     clean_raw,
@@ -143,6 +147,63 @@ class UnderSpecifiedTest(unittest.TestCase):
 
 
 class RegistryExactOnePolicyTest(unittest.TestCase):
+    @staticmethod
+    def _juso_row(unit: str = "101") -> dict[str, str]:
+        return {
+            "roadAddr": f"서울특별시 강남구 테헤란로 123 테스트빌딩 {unit}호",
+            "roadAddrPart1": "서울특별시 강남구 테헤란로 123",
+            "jibunAddr": "서울특별시 강남구 역삼동 123-4",
+            "bdNm": "테스트빌딩",
+            "zipNo": "06234",
+            "admCd": "1168010100",
+            "rnMgtSn": "116803122001",
+            "udrtYn": "0",
+            "buldMnnm": "123",
+            "buldSlno": "0",
+            "bdMgtSn": f"BD-{unit}",
+            "lnbrMnnm": "123",
+            "lnbrSlno": "4",
+        }
+
+    def _refine_one_row_with_first_pass(self, first_total: int) -> dict[str, str | int | None]:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            input_file = tmp_path / "input.xlsx"
+            output_dir = tmp_path / "out"
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Sheet1"
+            ws["A1"] = "대상 임대차계약 주소"
+            ws["A2"] = "서울특별시 강남구 역삼동 123-4 테스트빌딩 101호"
+            wb.save(input_file)
+
+            row = self._juso_row("101")
+            call_count = {"first": 0}
+
+            def fake_juso_query(_session, _key, keyword, _cache, count=5, preserve_commas=False):
+                if preserve_commas:
+                    call_count["first"] += 1
+                    if call_count["first"] == 1:
+                        rows = [row.copy() for _ in range(first_total)]
+                        return {"keyword": keyword, "total": first_total, "rows": rows[:count]}
+                    return {"keyword": keyword, "total": 0, "rows": []}
+                return {"keyword": keyword, "total": 1, "rows": [row]}
+
+            with mock.patch("address_cleaner.registry.excel.juso_query", side_effect=fake_juso_query):
+                refine(input_file, output_dir, "dummy-key", verbose=False)
+
+            output_file = output_dir / "input_등기소전체검색용_최종검색주소추가.xlsx"
+            out_wb = openpyxl.load_workbook(output_file)
+            out_ws = out_wb["Sheet1"]
+            headers = {out_ws.cell(1, c).value: c for c in range(1, out_ws.max_column + 1)}
+            return {
+                "JUSO_판정": out_ws.cell(2, headers["JUSO_판정"]).value,
+                "JUSO_총건수": out_ws.cell(2, headers["JUSO_총건수"]).value,
+                "JUSO_2차판정": out_ws.cell(2, headers["JUSO_2차판정"]).value,
+                "주소검토결과": out_ws.cell(2, headers["주소검토결과"]).value,
+                "등기_검토사유": out_ws.cell(2, headers["등기_검토사유"]).value,
+            }
+
     def test_first_pass_marks_zero_results_as_not_found(self) -> None:
         status, best = first_pass_status({"total": 0, "keyword": "원문", "rows": []}, None)
 
@@ -163,6 +224,22 @@ class RegistryExactOnePolicyTest(unittest.TestCase):
 
         self.assertEqual(status, "다중검출_상세주소제거")
         self.assertEqual(best["total"], 3)
+
+    def test_zero_result_first_pass_stays_review_even_after_high_second_pass(self) -> None:
+        row = self._refine_one_row_with_first_pass(0)
+
+        self.assertEqual(row["JUSO_판정"], "검색불가")
+        self.assertEqual(row["JUSO_2차판정"], "자동추천_높음")
+        self.assertEqual(row["주소검토결과"], "검토후조회")
+        self.assertIn("Juso 1차 검색불가", row["등기_검토사유"] or "")
+
+    def test_multiple_result_first_pass_stays_review_even_after_high_second_pass(self) -> None:
+        row = self._refine_one_row_with_first_pass(2)
+
+        self.assertEqual(row["JUSO_판정"], "다중검출_원문")
+        self.assertEqual(row["JUSO_2차판정"], "자동추천_높음")
+        self.assertEqual(row["주소검토결과"], "검토후조회")
+        self.assertIn("Juso 1차 다중검출_원문", row["등기_검토사유"] or "")
 
 class BackwardCompatImportTest(unittest.TestCase):
     def test_cli_still_re_exports_refactored_functions(self) -> None:

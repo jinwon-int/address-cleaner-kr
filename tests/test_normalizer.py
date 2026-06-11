@@ -1,4 +1,4 @@
-import tomllib
+from pathlib import Path
 
 import openpyxl
 import requests
@@ -234,6 +234,70 @@ def test_process_workbook_reuses_verification_for_repeated_addresses(tmp_path, m
     assert len(calls) == 1
 
 
+def test_process_workbook_marks_m_column_when_juso_returns_no_results(tmp_path, monkeypatch):
+    class _MissingJuso:
+        key = "test-key"
+
+        def search(self, query: str, count: int = 5):
+            return SearchResult("juso", 0, {}, {})
+
+    monkeypatch.setattr("address_cleaner.excel.JusoClient", _MissingJuso)
+    input_path = tmp_path / "input.xlsx"
+    output_path = tmp_path / "output.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["H1"] = "원주소"
+    ws["H2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    wb.save(input_path)
+
+    stats = process_workbook(
+        input_path,
+        output_path,
+        source_col="H",
+        target_col="I",
+        status_col="M",
+        provider="juso",
+        mark_missing=True,
+    )
+
+    result_ws = openpyxl.load_workbook(output_path).active
+    assert result_ws["M1"].value == "주소검색결과"
+    assert result_ws["M2"].value == STATUS_NOT_FOUND
+    assert stats["missing"] == 1
+
+
+def test_process_workbook_marks_m_column_when_juso_returns_multiple_results(tmp_path, monkeypatch):
+    class _AmbiguousJuso:
+        key = "test-key"
+
+        def search(self, query: str, count: int = 5):
+            return SearchResult("juso", 2, {}, {})
+
+    monkeypatch.setattr("address_cleaner.excel.JusoClient", _AmbiguousJuso)
+    input_path = tmp_path / "input.xlsx"
+    output_path = tmp_path / "output.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["H1"] = "원주소"
+    ws["H2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    wb.save(input_path)
+
+    stats = process_workbook(
+        input_path,
+        output_path,
+        source_col="H",
+        target_col="I",
+        status_col="M",
+        provider="juso",
+        mark_missing=True,
+    )
+
+    result_ws = openpyxl.load_workbook(output_path).active
+    assert result_ws["M1"].value == "주소검색결과"
+    assert result_ws["M2"].value == STATUS_AMBIGUOUS
+    assert stats["ambiguous"] == 1
+
+
 def test_verify_falls_back_to_compact_epost_query():
     epost = _FallbackEpost()
     result = _verify("경기도 파주시 하우3길 22 정우펠리스 제303동 제101호", "road", None, epost)
@@ -297,6 +361,6 @@ def test_registry_subcommand_delegates_to_registry_refiner(tmp_path, capsys, mon
 
 
 def test_registry_address_refine_console_script_is_kept_for_compatibility():
-    data = tomllib.loads(open("pyproject.toml", "rb").read().decode("utf-8"))
+    pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
-    assert data["project"]["scripts"]["registry-address-refine"] == "address_cleaner.registry.cli:main"
+    assert 'registry-address-refine = "address_cleaner.registry.cli:main"' in pyproject
