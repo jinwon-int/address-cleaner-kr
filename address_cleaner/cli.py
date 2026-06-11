@@ -11,6 +11,12 @@ from .normalizer import compact_for_epost, normalize_for_search
 
 
 def main(argv: list[str] | None = None) -> int:
+    cli_args = list(sys.argv[1:] if argv is None else argv)
+    if cli_args and cli_args[0] == "registry":
+        from .registry.cli import main as registry_main
+
+        return registry_main(cli_args[1:])
+
     parser = argparse.ArgumentParser(prog="address-cleaner")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -30,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     p_probe.add_argument("provider", choices=["juso", "epost"])
     p_probe.add_argument("query")
 
-    args = parser.parse_args(argv)
+    args = parser.parse_args(cli_args)
     if args.command == "normalize":
         normalized = normalize_for_search(args.address)
         print(json.dumps(normalized.__dict__, ensure_ascii=False, indent=2))

@@ -1,0 +1,16 @@
+[
+  {
+    "name": "lot address with unit suffix",
+    "raw": "서울틀벽시 샘플구 테스트동 123-4 제101동 제202호",
+    "expected_clean": "서울특별시 샘플구 테스트동 123-4 101동 202호",
+    "expected_lot_addr": "서울특별시 샘플구 테스트동 123-4",
+    "expected_unitless": "서울특별시 샘플구 테스트동 123-4"
+  },
+  {
+    "name": "old district typo and building token",
+    "raw": "인천시 남구 예시동 45-6 샘플빌라 301호",
+    "expected_clean": "인천광역시 미추홀구 예시동 45-6 샘플빌라 301호",
+    "expected_lot_addr": "인천광역시 미추홀구 예시동 45-6",
+    "expected_unitless": "인천광역시 미추홀구 예시동 45-6 샘플빌라"
+  }
+]
