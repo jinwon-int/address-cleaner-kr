@@ -1,3 +1,5 @@
+import tomllib
+
 import openpyxl
 
 from address_cleaner.clients import SearchResult
@@ -212,3 +214,27 @@ def test_cli_prints_clean_error_for_missing_api_keys(tmp_path, capsys):
     captured = capsys.readouterr()
     assert exit_code == 2
     assert captured.err.startswith("error: ")
+
+
+def test_registry_subcommand_delegates_to_registry_refiner(tmp_path, capsys, monkeypatch):
+    input_path = tmp_path / "input.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = "대상 임대차계약 주소"
+    ws["A2"] = "서울특별시 강남구 역삼동 123-4 101호"
+    wb.save(input_path)
+    monkeypatch.delenv("JUSO_CONFM_KEY", raising=False)
+    monkeypatch.delenv("JUSO_API_KEY", raising=False)
+    monkeypatch.delenv("CONFM_KEY", raising=False)
+
+    exit_code = main(["registry", str(input_path), "-o", str(tmp_path / "out")])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "JUSO_CONFM_KEY" in captured.err
+
+
+def test_registry_address_refine_console_script_is_kept_for_compatibility():
+    data = tomllib.loads(open("pyproject.toml", "rb").read().decode("utf-8"))
+
+    assert data["project"]["scripts"]["registry-address-refine"] == "address_cleaner.registry.cli:main"

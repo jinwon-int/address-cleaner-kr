@@ -21,6 +21,7 @@ dev = [
 
 [project.scripts]
 address-cleaner = "address_cleaner.cli:main"
+registry-address-refine = "address_cleaner.registry.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["address_cleaner"]
