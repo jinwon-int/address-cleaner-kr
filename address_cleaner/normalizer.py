@@ -4,10 +4,7 @@ from dataclasses import dataclass
 import re
 from typing import Any
 
-try:
-    import pandas as pd
-except Exception:  # pragma: no cover - pandas is optional for plain text use.
-    pd = None
+from .regions import ALL_SIDO_NAMES
 
 
 PAREN_CONTENT_RE = re.compile(r"\([^)]*\)")
@@ -64,12 +61,8 @@ class NormalizedAddress:
 def to_addr_str(raw_addr: Any) -> str:
     if raw_addr is None:
         return ""
-    if pd is not None:
-        try:
-            if pd.isna(raw_addr):
-                return ""
-        except (TypeError, ValueError):
-            pass
+    if isinstance(raw_addr, float) and raw_addr != raw_addr:  # NaN (pandas 셀 빈값)
+        return ""
     text = str(raw_addr).strip()
     return "" if text.lower() == "nan" else text
 
@@ -88,14 +81,8 @@ def preprocess_raw_address(raw_addr: Any) -> str:
     text = re.sub(r"[\x00-\x1f]", " ", text)
     text = ZIPCODE_RE.sub("", text).strip()
 
-    # 개편 전 명칭(강원도/전라북도/제주도)으로 적힌 원주소도 흔해서 함께 둔다.
-    # 신명칭이 구명칭을 부분 문자열로 포함하지 않아 긴 이름을 먼저 검사할 필요는 없다.
-    sido_keywords = [
-        "서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시",
-        "대전광역시", "울산광역시", "세종특별자치시", "경기도", "강원특별자치도",
-        "충청북도", "충청남도", "전북특별자치도", "전라남도", "경상북도",
-        "경상남도", "제주특별자치도", "강원도", "전라북도", "제주도",
-    ]
+    # 시/도 명칭은 regions.py가 단일 출처다 (구명칭 포함).
+    sido_keywords = ALL_SIDO_NAMES
     for sido in sido_keywords:
         if text.count(sido) >= 2:
             text = text[text.rfind(sido):]

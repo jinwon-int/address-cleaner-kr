@@ -10,6 +10,8 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
+from ..regions import SIDO_RE as REGIONS_SIDO_RE
+
 SPECIAL_CHARS = re.compile(r"[%,=><\[\]]+")
 
 
@@ -142,11 +144,7 @@ def strip_unit(value: Any) -> str:
     return norm(s)
 
 
-SIDO_RE = (
-    r"서울특별시|부산광역시|대구광역시|인천광역시|광주광역시|대전광역시|울산광역시|"
-    r"세종특별자치시|경기도|강원특별자치도|강원도|충청북도|충청남도|"
-    r"전북특별자치도|전라북도|전라남도|경상북도|경상남도|제주특별자치도|제주도"
-)
+SIDO_RE = REGIONS_SIDO_RE
 
 LOT_RE = re.compile(
     rf"(?:(?P<sido>{SIDO_RE})\s+)?"

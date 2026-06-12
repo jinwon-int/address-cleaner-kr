@@ -8,6 +8,9 @@ import openpyxl
 
 from .clients import JusoClient, KoreaPostRoadNameClient, SearchResult
 from .normalizer import base_for_search, compact_for_epost, normalize_for_search
+from .regions import AdminDict
+# 등기 모드의 검색어 빌딩블록을 일반 모드 검증에도 재사용한다.
+from .registry.normalize import district_key, lot_variants, parse_lot_addr
 
 
 ProviderMode = Literal["none", "juso", "epost", "both"]
@@ -45,6 +48,7 @@ def process_workbook(
     provider: ProviderMode = "both",
     mark_missing: bool = False,
     header: bool = True,
+    admin_dict: AdminDict | None = None,
 ) -> dict[str, int]:
     wb = openpyxl.load_workbook(input_path)
     ws = wb.active
@@ -102,6 +106,11 @@ def process_workbook(
                 status = STATUS_NOT_FOUND
                 verify_detail = LOCAL_STATUS_KO.get(normalized.status, normalized.status)
                 stats["missing"] += 1
+            elif admin_dict is not None and (dict_reason := _admin_combo_missing(normalized.query, normalized.kind, admin_dict)):
+                # 법정동 사전 오프라인 검증: API 호출 전에 실존하지 않는 행정구역을 거른다.
+                status = STATUS_NOT_FOUND
+                verify_detail = dict_reason
+                stats["missing"] += 1
             elif mark_missing and (juso is not None or epost is not None):
                 cache_key = (normalized.query, normalized.kind)
                 cached = verify_cache.get(cache_key)
@@ -123,6 +132,22 @@ def process_workbook(
 
     wb.save(output_path)
     return stats
+
+
+def _admin_combo_missing(query: str, kind: str, admin_dict: AdminDict) -> str:
+    """주소의 행정구역 조합이 법정동 사전에 없으면 사유 문자열, 있으면 빈 문자열.
+
+    행정동 표기(예: 신정3동)는 법정동 사전에 없어 거짓 양성이 날 수 있으므로
+    이 검사는 표시까지만 하고, 최종 판단은 사람/API 검증에 맡긴다.
+    """
+    if kind == "lot":
+        lot = parse_lot_addr(query)
+        combo = " ".join(p for p in [lot["sido"], lot["city"], lot["sigungu"], lot.get("eupmyeon", ""), lot["dong"]] if p)
+    else:
+        combo = district_key(query)
+    if combo and not admin_dict.contains(combo):
+        return f"법정동 사전에 없는 행정구역: {combo}"
+    return ""
 
 
 def _result_note(provider_label: str, result: SearchResult) -> str:
@@ -165,6 +190,24 @@ def _verify(query: str, kind: str, juso: JusoClient | None, epost: KoreaPostRoad
             if result.total_count != 0:
                 break
         results.append(result)
+        # 골격까지 0건인 지번주소는 붙여 쓴 지번(5717→57-17) 변형으로 후보를 찾아
+        # 사람이 보완할 수 있게 제안만 남긴다. 주소를 자동으로 바꾸지는 않는다.
+        if not result.has_error and result.total_count == 0 and kind == "lot":
+            for variant in lot_variants(base or query)[:3]:
+                try:
+                    variant_result = juso.search(variant, count=5)
+                except Exception:
+                    break
+                time.sleep(API_CALL_INTERVAL)
+                if not variant_result.has_error and variant_result.total_count == 1:
+                    road = variant_result.first.get("roadAddr") or ""
+                    zip_no = variant_result.first.get("zipNo") or ""
+                    notes.append(
+                        f"지번 변형 후보 1건: {variant}"
+                        + (f" → {road}" if road else "")
+                        + (f" (우){zip_no}" if zip_no else "")
+                    )
+                    break
     if epost is not None:
         search_se = "road" if kind == "road" else "dong"
         epost_queries = [query]
