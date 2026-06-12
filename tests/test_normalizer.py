@@ -160,15 +160,15 @@ class _FallbackEpost:
 
 
 def test_verify_marks_ambiguous_when_multiple_results():
-    assert _verify("서울특별시 강남구 테헤란로 152", "road", _FakeJuso(2), None) == "ambiguous"
+    assert _verify("서울특별시 강남구 테헤란로 152", "road", _FakeJuso(2), None)[0] == "ambiguous"
 
 
 def test_verify_marks_ambiguous_before_single_match():
-    assert _verify("서울특별시 강남구 테헤란로 152", "road", _FakeJuso(1), _FakeEpost(2)) == "ambiguous"
+    assert _verify("서울특별시 강남구 테헤란로 152", "road", _FakeJuso(1), _FakeEpost(2))[0] == "ambiguous"
 
 
 def test_verify_ignores_one_provider_error_when_another_provider_works():
-    assert _verify("서울특별시 강남구 테헤란로 152", "road", _FakeJuso(1), _FakeEpost(0, error=True)) == "verified"
+    assert _verify("서울특별시 강남구 테헤란로 152", "road", _FakeJuso(1), _FakeEpost(0, error=True))[0] == "verified"
 
 
 def test_verify_raises_when_all_configured_providers_error():
@@ -188,7 +188,7 @@ class _RaisingJuso:
 
 
 def test_verify_tolerates_juso_transport_error_when_epost_works():
-    assert _verify("서울특별시 강남구 테헤란로 152", "road", _RaisingJuso(), _FakeEpost(1)) == "verified"
+    assert _verify("서울특별시 강남구 테헤란로 152", "road", _RaisingJuso(), _FakeEpost(1))[0] == "verified"
 
 
 def test_verify_raises_when_transport_error_hits_the_only_provider():
@@ -300,7 +300,7 @@ def test_process_workbook_marks_m_column_when_juso_returns_multiple_results(tmp_
 
 def test_verify_falls_back_to_compact_epost_query():
     epost = _FallbackEpost()
-    result = _verify("경기도 파주시 하우3길 22 정우펠리스 제303동 제101호", "road", None, epost)
+    result, _detail = _verify("경기도 파주시 하우3길 22 정우펠리스 제303동 제101호", "road", None, epost)
     assert result == "verified"
     assert epost.queries == [
         ("경기도 파주시 하우3길 22 정우펠리스 제303동 제101호", "road"),
@@ -436,3 +436,74 @@ def test_duplex_floor_detail_with_parenthetical_is_removed():
     result = normalize_for_search("경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제1(상층하층)층 제101호")
     assert result.query == "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제101호"
     assert result.kind == "lot"
+
+
+def test_verify_retries_juso_with_base_skeleton_when_detail_query_misses():
+    class _BaseOnlyJuso:
+        key = "test-key"
+
+        def __init__(self):
+            self.queries = []
+
+        def search(self, query: str, count: int = 5):
+            self.queries.append(query)
+            if query == "경기도 고양시 일산동구 중산동 78-7":
+                return SearchResult(
+                    "juso", 1,
+                    {"roadAddr": "경기도 고양시 일산동구 중앙로 123", "zipNo": "10401"},
+                    {},
+                )
+            return SearchResult("juso", 0, {}, {})
+
+    juso = _BaseOnlyJuso()
+    status, detail = _verify(
+        "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제101호", "lot", juso, None
+    )
+
+    assert status == "verified"
+    assert juso.queries == [
+        "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제101호",
+        "경기도 고양시 일산동구 중산동 78-7",
+    ]
+    assert "골격" in detail
+    assert "10401" in detail
+
+
+def test_process_workbook_writes_detail_column(tmp_path, monkeypatch):
+    class _SingleJuso:
+        key = "test-key"
+
+        def search(self, query: str, count: int = 5):
+            return SearchResult(
+                "juso", 1,
+                {"roadAddr": "경기도 파주시 하우3길 22", "zipNo": "10911"},
+                {},
+            )
+
+    monkeypatch.setattr("address_cleaner.excel.JusoClient", _SingleJuso)
+    input_path = tmp_path / "input.xlsx"
+    output_path = tmp_path / "output.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["H1"] = "원주소"
+    ws["H2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    ws["H3"] = "주소 미상"
+    wb.save(input_path)
+
+    process_workbook(
+        input_path,
+        output_path,
+        source_col="H",
+        target_col="I",
+        status_col="M",
+        detail_col="N",
+        provider="juso",
+        mark_missing=True,
+    )
+
+    result_ws = openpyxl.load_workbook(output_path).active
+    assert result_ws["N1"].value == "주소검증상세"
+    assert "1건" in result_ws["N2"].value
+    assert "10911" in result_ws["N2"].value
+    assert result_ws["M3"].value == STATUS_NOT_FOUND
+    assert result_ws["N3"].value  # 로컬 제외 사유가 기록된다

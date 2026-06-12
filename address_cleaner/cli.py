@@ -36,6 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     p_excel.add_argument("--source-col", default="H")
     p_excel.add_argument("--target-col", default="I")
     p_excel.add_argument("--status-col")
+    p_excel.add_argument("--detail-col", help="검증 상세(검색 경로/건수/표준주소/우편번호)를 기록할 열")
     p_excel.add_argument("--provider", choices=["none", "juso", "epost", "both"], default="both")
     p_excel.add_argument("--mark-missing", action="store_true")
 
@@ -56,6 +57,7 @@ def main(argv: list[str] | None = None) -> int:
                 source_col=args.source_col,
                 target_col=args.target_col,
                 status_col=args.status_col,
+                detail_col=args.detail_col,
                 provider=args.provider,
                 mark_missing=args.mark_missing,
             )

@@ -210,6 +210,17 @@ def normalize_for_search(raw_addr: Any) -> NormalizedAddress:
     return NormalizedAddress(original=original, query="", kind="invalid", status="unrecognized", detail=fallback)
 
 
+def base_for_search(query: str, kind: str) -> str:
+    """건물명/동/호 상세부를 뗀 주소 골격(시도~지번/건물번호).
+
+    상세 포함 검색이 0건일 때 골격만으로 2차 검색해, 상세 표기 때문에
+    멀쩡한 주소가 검색주소없음으로 빠지는 것을 막는다.
+    """
+    pattern = ROAD_QUERY_RE if kind == "road" else LOT_QUERY_RE
+    match = pattern.match(query)
+    return normalize_spaces(match.group(0)) if match else ""
+
+
 def compact_for_epost(query: str, kind: str) -> str:
     """Build the short Korea Post query form for provider-specific fallback."""
     cleaned = strip_floor_detail(strip_api_unsafe_tokens(preprocess_raw_address(query)))

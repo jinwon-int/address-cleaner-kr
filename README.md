@@ -71,6 +71,12 @@ address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --
 address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --status-col M --provider both --mark-missing
 ```
 
+검증 상세를 함께 남기려면 `--detail-col`을 추가합니다(예: N열). 어떤 검색어로 몇 건이 나왔는지, 1건으로 확정되면 표준 도로명주소와 우편번호까지 기록되어 사람이 보완하거나 후단 자동입력 실패(우편번호 미확정 등)를 사전 점검할 때 바로 쓸 수 있습니다.
+
+```bash
+address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --status-col M --detail-col N --mark-missing
+```
+
 M열 표시값:
 
 - `검색주소없음`: 원주소가 잘못됐거나 API 검색 결과가 0건입니다.
@@ -79,7 +85,7 @@ M열 표시값:
 
 검증 방식:
 
-- `juso`: 상세부를 포함한 정제 검색어로 검증합니다.
+- `juso`: 상세부를 포함한 정제 검색어로 1차 검증하고, 0건이면 상세부를 뗀 주소 골격(시도~지번/건물번호)으로 한 번 더 검증합니다. 어느 단계에서 몇 건이 나왔는지는 `--detail-col`에 남습니다.
 - `epost`: 상세부 포함 검색어가 맞지 않으면 우정사업본부 검색 특성에 맞춰 `도로명+건물번호` 또는 `동+번지` 형태의 짧은 검색어로 한 번 더 검증합니다.
 
 API 키 상태 확인:
