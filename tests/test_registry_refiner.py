@@ -253,5 +253,14 @@ class BackwardCompatImportTest(unittest.TestCase):
         )
 
 
+class DuplexFloorNotationTest(unittest.TestCase):
+    def test_clean_raw_handles_duplex_floor_with_parenthetical(self):
+        # 실제 전산 입력 실패 사례(우편번호 미확정)에서 확인된 복층 표기.
+        self.assertEqual(
+            clean_raw("경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제1(상층하층)층 제101호"),
+            "경기도 고양시 일산동구 중산동 78-7 시크릿타운 비동 1층 101호",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

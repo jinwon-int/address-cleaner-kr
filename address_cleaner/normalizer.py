@@ -4,16 +4,18 @@ from dataclasses import dataclass
 import re
 from typing import Any
 
-try:
-    import pandas as pd
-except Exception:  # pragma: no cover - pandas is optional for plain text use.
-    pd = None
+from .regions import ALL_SIDO_NAMES
 
 
 PAREN_CONTENT_RE = re.compile(r"\([^)]*\)")
 ZIPCODE_RE = re.compile(r"^\s*\d{5}\s+")
 ET_AL_RE = re.compile(r"외\s*\d+\s*(필지|건|목록)")
-FLOOR_DETAIL_RE = re.compile(r"(?<![가-힣0-9])(?:제\s*)?(?:지하\s*)?\d+\s*층(?![가-힣0-9])|(?<![가-힣0-9])(?:지층|반지하)(?![가-힣0-9])")
+FLOOR_DETAIL_RE = re.compile(
+    # '제1(상층하층)층' 같은 복층 표기는 괄호가 끼어 있어도 층 정보로 보고 제거한다.
+    r"(?<![가-힣0-9])(?:제\s*)?(?:지하\s*)?\d+\s*\([^)]*\)\s*층(?![가-힣0-9])"
+    r"|(?<![가-힣0-9])(?:제\s*)?(?:지하\s*)?\d+\s*층(?![가-힣0-9])"
+    r"|(?<![가-힣0-9])(?:지층|반지하)(?![가-힣0-9])"
+)
 DETAIL_START_RE = re.compile(
     r"\s+(?:"
     r"(?:제)?\d+동|(?:제)?[A-Za-z가-힣]동|(?:제)?\d+층|지하\s*\d*층?|"
@@ -21,8 +23,11 @@ DETAIL_START_RE = re.compile(
     r")\b"
 )
 ROAD_SUFFIXES = "번길|대로|로|길"
+# 도로명은 시군구가 생략된 원주소('테헤란로 152 ...')도 검색어로 살린다.
+# 단일 여부는 API 검증(2건이상검색)으로 가린다. 지번(LOT)은 동명이 전국에
+# 많아 행정구역 없는 매치를 주소로 보지 않는 기존 정책을 유지한다.
 ROAD_QUERY_RE = re.compile(
-    rf"^(?P<prefix>.+?\s[가-힣0-9·.\-]+(?:{ROAD_SUFFIXES}))\s*"
+    rf"^(?P<prefix>(?:.+?\s)?[가-힣0-9·.\-]+(?:{ROAD_SUFFIXES}))\s*"
     r"(?P<num>\d+(?:-\d+)?)\b"
 )
 LOT_QUERY_RE = re.compile(
@@ -56,12 +61,8 @@ class NormalizedAddress:
 def to_addr_str(raw_addr: Any) -> str:
     if raw_addr is None:
         return ""
-    if pd is not None:
-        try:
-            if pd.isna(raw_addr):
-                return ""
-        except (TypeError, ValueError):
-            pass
+    if isinstance(raw_addr, float) and raw_addr != raw_addr:  # NaN (pandas 셀 빈값)
+        return ""
     text = str(raw_addr).strip()
     return "" if text.lower() == "nan" else text
 
@@ -80,12 +81,8 @@ def preprocess_raw_address(raw_addr: Any) -> str:
     text = re.sub(r"[\x00-\x1f]", " ", text)
     text = ZIPCODE_RE.sub("", text).strip()
 
-    sido_keywords = [
-        "서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시",
-        "대전광역시", "울산광역시", "세종특별자치시", "경기도", "강원특별자치도",
-        "충청북도", "충청남도", "전북특별자치도", "전라남도", "경상북도",
-        "경상남도", "제주특별자치도",
-    ]
+    # 시/도 명칭은 regions.py가 단일 출처다 (구명칭 포함).
+    sido_keywords = ALL_SIDO_NAMES
     for sido in sido_keywords:
         if text.count(sido) >= 2:
             text = text[text.rfind(sido):]
@@ -198,6 +195,17 @@ def normalize_for_search(raw_addr: Any) -> NormalizedAddress:
 
     fallback = normalize_spaces(_cut_detail(cleaned))
     return NormalizedAddress(original=original, query="", kind="invalid", status="unrecognized", detail=fallback)
+
+
+def base_for_search(query: str, kind: str) -> str:
+    """건물명/동/호 상세부를 뗀 주소 골격(시도~지번/건물번호).
+
+    상세 포함 검색이 0건일 때 골격만으로 2차 검색해, 상세 표기 때문에
+    멀쩡한 주소가 검색주소없음으로 빠지는 것을 막는다.
+    """
+    pattern = ROAD_QUERY_RE if kind == "road" else LOT_QUERY_RE
+    match = pattern.match(query)
+    return normalize_spaces(match.group(0)) if match else ""
 
 
 def compact_for_epost(query: str, kind: str) -> str:

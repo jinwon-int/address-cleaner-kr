@@ -117,7 +117,7 @@ class KoreaPostRoadNameClient:
         self.key = next((os.getenv(name) for name in EPOST_KEY_ENV_VARS if os.getenv(name)), None) if key is None else key
         self.timeout = timeout
 
-    def search(self, keyword: str, search_se: str = "road", count: int = 10) -> SearchResult:
+    def search(self, keyword: str, search_se: str = "road", count: int = 10, retries: int = 3) -> SearchResult:
         if not self.key:
             raise RuntimeError("EPOST_SERVICE_KEY is required for Korea Post validation")
         params = {
@@ -127,10 +127,18 @@ class KoreaPostRoadNameClient:
             "countPerPage": count,
             "currentPage": 1,
         }
-        response = requests.get(self.endpoint, params=params, timeout=self.timeout)
-        response.raise_for_status()
-        text = response.text
-        root = ET.fromstring(text)
+        # Juso 쪽 request_juso와 같은 기준으로 일시적 네트워크 오류/깨진 응답을 재시도한다.
+        for attempt in range(retries + 1):
+            try:
+                response = requests.get(self.endpoint, params=params, timeout=self.timeout)
+                response.raise_for_status()
+                text = response.text
+                root = ET.fromstring(text)
+                break
+            except (requests.RequestException, ET.ParseError):
+                if attempt == retries:
+                    raise
+                time.sleep(2**attempt)
         return_code = _text(root, ".//returnCode")
         if return_code and return_code != "00":
             return SearchResult(
