@@ -96,6 +96,29 @@ address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --
 
 지번주소가 골격 검색까지 0건이면 붙여 쓴 지번 변형(`야당동 5717` → `57-17`)으로 후보를 찾아 검증상세에 제안만 남깁니다. 주소를 자동으로 바꾸지는 않습니다.
 
+검증 이력과 교정 후보까지 켠 권장 배치 실행:
+
+```bash
+address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I \
+  --status-col M --detail-col O --mark-missing \
+  --history verify_history.sqlite --corrections-out corrections.json
+```
+
+- `--history`: 검증 결과를 SQLite에 누적합니다. 기한(기본 14일, `--history-max-age-days`) 내 같은 주소는 API를 부르지 않고 재사용하고, 이전 실행과 판정이 달라진 주소(예: 지난달 1건 → 이번달 0건)는 검증상세에 `⚠ 판정 변경`으로 표시합니다. 행정구역 개편·건물 멸실 신호이므로 사람이 확인해야 합니다.
+- `--corrections-out`: 원문 그대로는 검색이 안 되고 골격/지번 변형으로만 통한 주소 쌍을 JSON 리포트로 수확합니다. 사람이 검토해 원주소를 고치거나 `--typo-rules` 규칙으로 승격하면, 오타 사전이 데이터에서 스스로 자랍니다.
+
+### 1-1) 파워쉘 실패 환류 리포트
+
+후단 자동입력(파워쉘)이 처리결과를 기록한 엑셀에서 실패 행만 모아 재정제 리포트를 만듭니다.
+
+```bash
+address-cleaner feedback result.xlsx -o feedback.json
+```
+
+- M열이 `실패(...)`인 행을 실패 유형별로 집계하고, 원주소를 **현재 규칙으로 다시 정제**해 봅니다.
+- `requeryChanged: true`인 행은 규칙이 그동안 개선돼 I열만 갱신하면 되는 행입니다.
+- 재정제해도 같은 검색어가 나오는 행이 새 정제 규칙이 필요한 사례이며, `psDetail`(전산 반응)과 함께 규칙 보강의 입력이 됩니다.
+
 API 키 상태 확인:
 
 ```bash
