@@ -6,7 +6,8 @@ from pathlib import Path
 import sys
 
 from .clients import JusoClient, KoreaPostRoadNameClient
-from .excel import process_workbook
+from .excel import collect_feedback, process_workbook
+from .history import VerifyHistory
 from .normalizer import compact_for_epost, normalize_for_search
 from .regions import AdminDict
 
@@ -41,6 +42,17 @@ def main(argv: list[str] | None = None) -> int:
     p_excel.add_argument("--provider", choices=["none", "juso", "epost", "both"], default="both")
     p_excel.add_argument("--mark-missing", action="store_true")
     p_excel.add_argument("--admin-dict", help="행안부 '법정동코드 전체자료' 텍스트 파일 경로 (API 호출 전 오프라인 행정구역 검증)")
+    p_excel.add_argument("--history", help="검증 이력 SQLite 파일 경로 (최근 결과 재사용 + 판정 변화 감지)")
+    p_excel.add_argument("--history-max-age-days", type=int, default=14, help="이력 재사용 허용 일수 (기본 14)")
+    p_excel.add_argument("--corrections-out", help="교정 후보 리포트 JSON 저장 경로 (골격/지번변형으로만 통한 주소 쌍)")
+
+    p_feedback = sub.add_parser("feedback", help="파워쉘 처리결과 엑셀의 실패 행을 모아 재정제 리포트 생성")
+    p_feedback.add_argument("input")
+    p_feedback.add_argument("-o", "--output", help="리포트 JSON 저장 경로 (생략 시 stdout)")
+    p_feedback.add_argument("--source-col", default="H")
+    p_feedback.add_argument("--target-col", default="I")
+    p_feedback.add_argument("--result-col", default="M")
+    p_feedback.add_argument("--ps-detail-col", default="N")
 
     p_probe = sub.add_parser("probe", help="Probe configured API key with one query")
     p_probe.add_argument("provider", choices=["juso", "epost"])
@@ -52,8 +64,11 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(normalized.__dict__, ensure_ascii=False, indent=2))
         return 0
     if args.command == "excel":
+        history = None
         try:
             admin_dict = AdminDict.load(Path(args.admin_dict)) if args.admin_dict else None
+            if args.history:
+                history = VerifyHistory(Path(args.history), max_age_days=args.history_max_age_days)
             stats = process_workbook(
                 Path(args.input),
                 Path(args.output),
@@ -64,11 +79,35 @@ def main(argv: list[str] | None = None) -> int:
                 provider=args.provider,
                 mark_missing=args.mark_missing,
                 admin_dict=admin_dict,
+                history=history,
+                corrections_path=Path(args.corrections_out) if args.corrections_out else None,
             )
         except (RuntimeError, ValueError, OSError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
+        finally:
+            if history is not None:
+                history.close()
         print(json.dumps(stats, ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "feedback":
+        try:
+            report = collect_feedback(
+                Path(args.input),
+                source_col=args.source_col,
+                target_col=args.target_col,
+                result_col=args.result_col,
+                ps_detail_col=args.ps_detail_col,
+            )
+        except (RuntimeError, ValueError, OSError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        text = json.dumps(report, ensure_ascii=False, indent=2)
+        if args.output:
+            Path(args.output).write_text(text, encoding="utf-8")
+            print(f"실패 {report['failures']}건 (재정제 변경 {report['requeryChanged']}건) → {args.output}")
+        else:
+            print(text)
         return 0
     if args.command == "probe":
         client = JusoClient() if args.provider == "juso" else KoreaPostRoadNameClient()

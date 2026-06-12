@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime
+import json
 from pathlib import Path
 import time
-from typing import Literal
+from typing import Any, Literal
 
 import openpyxl
 
 from .clients import JusoClient, KoreaPostRoadNameClient, SearchResult
+from .history import VerifyHistory
 from .normalizer import base_for_search, compact_for_epost, normalize_for_search
 from .regions import AdminDict
 # 등기 모드의 검색어 빌딩블록을 일반 모드 검증에도 재사용한다.
@@ -49,6 +52,8 @@ def process_workbook(
     mark_missing: bool = False,
     header: bool = True,
     admin_dict: AdminDict | None = None,
+    history: VerifyHistory | None = None,
+    corrections_path: str | Path | None = None,
 ) -> dict[str, int]:
     wb = openpyxl.load_workbook(input_path)
     ws = wb.active
@@ -84,10 +89,15 @@ def process_workbook(
         "missing": 0,
         "ambiguous": 0,
         "verified": 0,
+        "history_reused": 0,
+        "verdict_changed": 0,
+        "correction_candidates": 0,
     }
     start_row = 2 if header else 1
     # 같은 원주소가 여러 행에 반복되는 파일이 흔해서 검증 결과를 재사용한다.
-    verify_cache: dict[tuple[str, str], tuple[str, str]] = {}
+    verify_cache: dict[tuple[str, str], tuple[str, str, dict[str, str] | None]] = {}
+    # 교정 후보: (원문, 통한 검색어) 단위로 모아 어떤 행들에서 나왔는지 누적한다.
+    corrections: dict[tuple[str, str], dict[str, Any]] = {}
     for row in range(start_row, ws.max_row + 1):
         raw = ws.cell(row=row, column=source_idx).value
         normalized = normalize_for_search(raw)
@@ -115,9 +125,27 @@ def process_workbook(
                 cache_key = (normalized.query, normalized.kind)
                 cached = verify_cache.get(cache_key)
                 if cached is None:
-                    cached = _verify(normalized.query, normalized.kind, juso, epost)
+                    fresh = history.fresh(normalized.query, normalized.kind) if history else None
+                    if fresh is not None:
+                        # 최근 검증 이력 재사용: API 호출 생략
+                        cached = (fresh.verdict, f"{fresh.detail} (이력 재사용 {fresh.checked_at[:10]})", None)
+                        stats["history_reused"] += 1
+                    else:
+                        verification, verify_detail, correction = _verify(normalized.query, normalized.kind, juso, epost)
+                        if history is not None:
+                            previous = history.latest(normalized.query, normalized.kind)
+                            history.record(normalized.query, normalized.kind, verification, verify_detail)
+                            if previous is not None and previous.verdict != verification:
+                                # 행정구역 개편·건물 멸실 등의 신호: 사람이 봐야 한다.
+                                verify_detail += f"; ⚠ 판정 변경: {previous.checked_at[:10]} {previous.verdict} → {verification}"
+                                stats["verdict_changed"] += 1
+                        cached = (verification, verify_detail, correction)
                     verify_cache[cache_key] = cached
-                verification, verify_detail = cached
+                verification, verify_detail, correction = cached
+                if correction is not None:
+                    key = (correction["original"], correction["working"])
+                    entry = corrections.setdefault(key, {**correction, "rows": []})
+                    entry["rows"].append(row)
                 if verification == "verified":
                     stats["verified"] += 1
                 elif verification == "ambiguous":
@@ -131,7 +159,74 @@ def process_workbook(
                 ws.cell(row=row, column=detail_idx).value = verify_detail
 
     wb.save(output_path)
+
+    stats["correction_candidates"] = len(corrections)
+    if corrections_path is not None:
+        # 사람이 검토해 typo-rules나 원주소 수정에 반영할 교정 후보 리포트.
+        report = {
+            "input": str(input_path),
+            "generated": datetime.now().isoformat(timespec="seconds"),
+            "candidates": list(corrections.values()),
+        }
+        Path(corrections_path).write_text(
+            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     return stats
+
+
+def collect_feedback(
+    input_path: str | Path,
+    source_col: str = "H",
+    target_col: str = "I",
+    result_col: str = "M",
+    ps_detail_col: str | None = "N",
+    header: bool = True,
+) -> dict[str, Any]:
+    """파워쉘 처리결과 엑셀에서 실패 행을 모아 재정제 리포트를 만든다.
+
+    M열이 '실패(...)'인 행에 대해 현재 규칙으로 원주소를 다시 정제해 보고,
+    기존 I열과 달라졌으면(=규칙이 그동안 개선됐으면) I열 갱신 후보로 표시한다.
+    여전히 같은 검색어가 나오는 행은 새 정제 규칙이 필요한 사례다.
+    """
+    wb = openpyxl.load_workbook(input_path)
+    ws = wb.active
+    source_idx = col_to_index(source_col)
+    target_idx = col_to_index(target_col)
+    result_idx = col_to_index(result_col)
+    ps_detail_idx = col_to_index(ps_detail_col) if ps_detail_col else None
+
+    rows: list[dict[str, Any]] = []
+    by_result: dict[str, int] = {}
+    requery_changed = 0
+    for row in range(2 if header else 1, ws.max_row + 1):
+        result = str(ws.cell(row=row, column=result_idx).value or "")
+        if not result.startswith("실패"):
+            continue
+        source = ws.cell(row=row, column=source_idx).value
+        current_query = str(ws.cell(row=row, column=target_idx).value or "")
+        normalized = normalize_for_search(source)
+        changed = bool(normalized.query) and normalized.query != current_query
+        if changed:
+            requery_changed += 1
+        by_result[result] = by_result.get(result, 0) + 1
+        rows.append({
+            "row": row,
+            "result": result,
+            "source": str(source or ""),
+            "currentQuery": current_query,
+            "psDetail": str(ws.cell(row=row, column=ps_detail_idx).value or "") if ps_detail_idx else "",
+            "requery": normalized.query,
+            "requeryChanged": changed,
+            "localStatus": normalized.status,
+        })
+    return {
+        "input": str(input_path),
+        "generated": datetime.now().isoformat(timespec="seconds"),
+        "failures": len(rows),
+        "byResult": by_result,
+        "requeryChanged": requery_changed,
+        "rows": rows,
+    }
 
 
 def _admin_combo_missing(query: str, kind: str, admin_dict: AdminDict) -> str:
@@ -159,17 +254,21 @@ def _result_note(provider_label: str, result: SearchResult) -> str:
     return f"{provider_label} {result.total_count}건"
 
 
-def _verify(query: str, kind: str, juso: JusoClient | None, epost: KoreaPostRoadNameClient | None) -> tuple[Literal["verified", "ambiguous", "missing"], str]:
-    """(판정, 사람이 읽을 검증 상세) 반환.
+def _verify(query: str, kind: str, juso: JusoClient | None, epost: KoreaPostRoadNameClient | None) -> tuple[Literal["verified", "ambiguous", "missing"], str, dict[str, str] | None]:
+    """(판정, 사람이 읽을 검증 상세, 교정 후보) 반환.
 
     Juso는 상세 포함 검색이 0건이면 골격(시도~지번/건물번호)으로 한 번 더 검색한다.
     상세 표기('제비동 제101호' 등) 때문에 멀쩡한 주소가 불량 처리되는 것을 막고,
     골격조차 0건인 진짜 불량과 구분되도록 상세에 검색 경로를 남긴다.
+
+    교정 후보: 원문 그대로는 안 되지만 골격/지번 변형으로는 통한 경우,
+    '원문 ↔ 통한 검색어' 쌍을 반환해 교정 규칙 후보 리포트에 누적할 수 있게 한다.
     """
     if not query:
-        return "missing", ""
+        return "missing", "", None
     results: list[SearchResult] = []
     notes: list[str] = []
+    correction: dict[str, str] | None = None
     if juso is not None:
         juso_queries = [("상세포함", query)]
         base = base_for_search(query, kind)
@@ -188,6 +287,15 @@ def _verify(query: str, kind: str, juso: JusoClient | None, epost: KoreaPostRoad
                 break
             notes.append(_result_note(f"JUSO[{label}]", result))
             if result.total_count != 0:
+                if label == "골격" and result.total_count == 1:
+                    # 상세부 표기가 검색을 깨뜨린 사례 → 교정 후보로 수확
+                    correction = {
+                        "type": "상세부제거",
+                        "original": query,
+                        "working": base,
+                        "resolved": result.first.get("roadAddr") or "",
+                        "zip": result.first.get("zipNo") or "",
+                    }
                 break
         results.append(result)
         # 골격까지 0건인 지번주소는 붙여 쓴 지번(5717→57-17) 변형으로 후보를 찾아
@@ -207,6 +315,13 @@ def _verify(query: str, kind: str, juso: JusoClient | None, epost: KoreaPostRoad
                         + (f" → {road}" if road else "")
                         + (f" (우){zip_no}" if zip_no else "")
                     )
+                    correction = {
+                        "type": "지번변형",
+                        "original": base or query,
+                        "working": variant,
+                        "resolved": road,
+                        "zip": zip_no,
+                    }
                     break
     if epost is not None:
         search_se = "road" if kind == "road" else "dong"
@@ -234,7 +349,7 @@ def _verify(query: str, kind: str, juso: JusoClient | None, epost: KoreaPostRoad
         raise RuntimeError("Address validation providers returned API errors; check API keys before marking missing addresses")
     detail = "; ".join(notes)
     if any(result.total_count >= 2 for result in usable_results):
-        return "ambiguous", detail
+        return "ambiguous", detail, correction
     if any(result.total_count == 1 for result in usable_results):
-        return "verified", detail
-    return "missing", detail
+        return "verified", detail, correction
+    return "missing", detail, correction
