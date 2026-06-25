@@ -183,3 +183,14 @@ registry-address-refine input.xlsx -o out
 - 원본 legacy 스크립트에 있던 하드코딩 키는 레포에 커밋하지 않습니다.
 - `.env`, 로그, Excel 산출물은 기본적으로 Git 추적에서 제외합니다.
 - 우정사업본부(ePost) 엔드포인트는 현재 `http://`입니다. 운영망에서 `https://openapi.epost.go.kr` 응답이 확인되면 `clients.py`의 엔드포인트를 https로 전환하세요.
+
+## Public source visibility boundary
+
+This repository is being prepared for possible public source visibility. A
+public repository setting would be source-only: it would not approve release or
+tag creation, package/image publication, production deploy/restart/reload,
+database mutation, provider or Telegram sends, credential movement, history
+rewrite, or any other live operation.
+
+Runtime credentials and private operational data must stay outside the
+repository. Example configuration must use placeholders only.
