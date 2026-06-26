@@ -12,15 +12,18 @@ import openpyxl
 from address_cleaner.registry.excel import refine
 from address_cleaner.registry.juso import first_pass_status, make_queries
 from address_cleaner.registry.normalize import (
+    building_name,
     clean_raw,
     has_extra_parcels,
     load_typo_rules,
+    normalize_unit_dong,
     original_is_under_specified,
     parse_lot_addr,
     set_extra_typo_rules,
     strip_detail,
     strip_unit,
     typo_fix,
+    unit_extract,
     unit_out_of_range,
 )
 
@@ -130,6 +133,40 @@ class UnitRangeGuardTest(unittest.TestCase):
 
     def test_absurd_dong_is_flagged(self) -> None:
         self.assertTrue(unit_out_of_range("12345", "101"))
+
+
+class UnitDongTest(unittest.TestCase):
+    def test_removes_bare_dong_before_unit(self) -> None:
+        self.assertEqual(normalize_unit_dong("송내동 572-5 동402호"), "송내동 572-5 402호")
+        self.assertEqual(normalize_unit_dong("문화드림빌 동1108호"), "문화드림빌 1108호")
+
+    def test_splits_fused_building_dong_and_unit(self) -> None:
+        self.assertEqual(normalize_unit_dong("1동303호"), "1동 303호")
+        self.assertEqual(normalize_unit_dong("101동202호"), "101동 202호")
+
+    def test_keeps_legal_dong_and_spaced_building_dong(self) -> None:
+        # 법정동(약대동)·번호 있는 건물동(101동)·'성수동1가'는 그대로 둔다.
+        self.assertEqual(normalize_unit_dong("약대동 52 동화탑스빌 401호"), "약대동 52 동화탑스빌 401호")
+        self.assertEqual(normalize_unit_dong("성수동1가 101호"), "성수동1가 101호")
+        self.assertEqual(normalize_unit_dong("101동 202호"), "101동 202호")
+
+    def test_unit_extract_drops_bare_dong_from_ho(self) -> None:
+        unit = unit_extract("인천 미추홀구 주안동 1457-9 동301호", "", "인천광역시 미추홀구 주안동 1457-9")
+        self.assertEqual(unit["ho"], "301")
+        self.assertEqual(unit["bld_dong"], "")
+
+    def test_unit_extract_recovers_fused_building_dong(self) -> None:
+        unit = unit_extract("인천 남동구 간석동 94-7 1동303호", "", "인천광역시 남동구 간석동 94-7")
+        self.assertEqual(unit["bld_dong"], "1")
+        self.assertEqual(unit["ho"], "303")
+
+    def test_building_name_ignores_parenthetical_unit_detail(self) -> None:
+        # (동 102호)는 상세부일 뿐 건물명이 아니다.
+        name = building_name(
+            "인천광역시 남동구 구월동 1290-10 (동 102호)",
+            "인천광역시 남동구 구월동 1290-10",
+        )
+        self.assertEqual(name, "")
 
 
 class ParseLotAddrTest(unittest.TestCase):
