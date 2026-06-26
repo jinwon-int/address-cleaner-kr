@@ -108,6 +108,8 @@ def clean_raw(value: Any) -> str:
     s = norm(s)
     # 원문에 동·호가 통째로 두 번 적힌 경우('101동 504호 101동 504호') 한 번으로 접는다.
     s = re.sub(r"((?:\d+|[A-Za-z가-힣])동\s*\d+호)(?:\s+\1)+", r"\1", s)
+    # 'N동NNN호' 분리 + 호수 앞 외톨이 '동' 제거(2차 검색어도 동일 기준으로 정리).
+    s = normalize_unit_dong(s)
     return norm(s)
 
 
@@ -281,6 +283,20 @@ def is_probable_building_dong(token: Any) -> bool:
     return x in KOR_DONG_MAP
 
 
+def normalize_unit_dong(text: Any) -> str:
+    """호수 앞 '동' 표기를 정리한다.
+
+    - 'N동NNN호'(붙은 건물동+호수)는 'N동 NNN호'로 띄워 동/호를 각각 잡게 한다.
+      뒤가 '\\d+호'일 때만 띄워 '성수동1가' 같은 법정동은 건드리지 않는다.
+    - 식별자(숫자·문자) 없이 호수 앞에 붙은 외톨이 '동'('동401호', '-동 201호')은
+      잡음이므로 삭제한다. 건물동('101동','A동','가동')·법정동('약대동')은 동 앞에
+      숫자·영문·한글이 있어 룩비하인드로 보존된다.
+    """
+    s = re.sub(r"동(?=\d{1,4}호)", "동 ", str(text))
+    s = re.sub(r"(?<![가-힣A-Za-z0-9])동(?=\s*\d{1,4}\s*호)", "", s)
+    return normalize_spaces(s)
+
+
 def unit_extract(raw: Any, final: Any, lot_addr: str) -> dict[str, str]:
     # If the original text is road-address only, tail_after_lot() can include legal dongs
     # such as 경서동/부평동.  Also, text like '만수동 601호' must not be treated as
@@ -288,6 +304,7 @@ def unit_extract(raw: Any, final: Any, lot_addr: str) -> dict[str, str]:
     # actually appears in the raw text; otherwise use the whole raw/final text.
     search = tail_after_actual_lot(raw, lot_addr) or (typo_fix(raw) + " " + norm(final))
     search = re.sub(r"호\s*호\b", "호", search)
+    search = normalize_unit_dong(search)
     bld_dong = ""
     ho = ""
     floor = ""
@@ -366,6 +383,15 @@ def original_is_under_specified(raw: Any) -> bool:
     return not meaningful
 
 
+def _strip_unit_detail(text: Any) -> str:
+    """건물명 후보에서 동·층·호 같은 상세부를 떼어 이름 부분만 남긴다."""
+    s = normalize_unit_dong(str(text))
+    s = re.sub(r"(?:제\s*)?[가-힣A-Za-z0-9]+\s*동\b", " ", s)
+    s = re.sub(r"(?:제\s*)?\d{1,3}\s*층\b", " ", s)
+    s = re.sub(r"(?:제\s*)?[가-힣A-Za-z]?\d{1,4}\s*호\b", " ", s)
+    return norm(s)
+
+
 def building_name(raw: Any, lot_addr: str, juso_road: Any = "", final: Any = "") -> str:
     names: list[str] = []
     for text in [raw, final, juso_road]:
@@ -374,12 +400,18 @@ def building_name(raw: Any, lot_addr: str, juso_road: Any = "", final: Any = "")
         for par in re.findall(r"\(([^)]*)\)", normalize_spaces(text)):
             for p in [p.strip() for p in re.split(r"[,/]", par) if p.strip()]:
                 # Parentheses often contain legal dong first: (경서동, 아시아드빌)
-                if not re.search(r"(동|가|리)$", p):
+                if re.search(r"(동|가|리)$", p):
+                    continue
+                # ...or pure unit detail like (동 102호); 상세부를 떼고 이름만 남긴다.
+                p = _strip_unit_detail(p)
+                if p:
                     names.append(p)
     # Only use free text after a real lot-address match.  For road-address originals,
     # the whole address tail contains legal dong/road terms and should not become building name.
     t = tail_after_actual_lot(raw, lot_addr)
     t = re.sub(r"외\s*\d+\s*필지", " ", t)
+    # 'N동NNN호'를 띄우고 외톨이 '동'을 떼어, 건물동 숫자가 건물명으로 새는 것을 막는다.
+    t = normalize_unit_dong(t)
     t = re.sub(r"(?:제\s*)?[가-힣A-Za-z0-9]+\s*동\b", " ", t)
     t = re.sub(r"(?:제\s*)?\d{1,3}\s*층\b", " ", t)
     t = re.sub(r"(?:제\s*)?[가-힣A-Za-z]?\d{1,4}\s*호\b", " ", t)
@@ -391,7 +423,8 @@ def building_name(raw: Any, lot_addr: str, juso_road: Any = "", final: Any = "")
     seen: list[str] = []
     for n in names:
         n = norm(re.sub(r"[()]", " ", str(n)))
-        if n and n not in seen:
+        # 한글·영문이 없는 후보(순수 숫자 '1', 기호 '-')는 건물명이 아니므로 버린다.
+        if n and re.search(r"[가-힣A-Za-z]", n) and n not in seen:
             seen.append(n)
     return seen[0] if seen else ""
 
