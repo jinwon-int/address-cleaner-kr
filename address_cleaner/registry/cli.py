@@ -67,6 +67,7 @@ from .normalize import (  # noqa: F401
     typo_fix,
     typo_fix_first_pass,
     unit_extract,
+    unit_out_of_range,
 )
 
 
@@ -76,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-o", "--output-dir", type=Path, default=Path("out"), help="출력 디렉터리 (기본: out)")
     parser.add_argument("--cache", type=Path, default=None, help="Juso API 캐시 JSON 경로")
     parser.add_argument("--typo-rules", type=Path, default=None, help='추가 오타 교정 규칙 JSON 경로 (예: [["프루지오", "푸르지오"]])')
+    parser.add_argument("--workers", type=int, default=8, help="Juso 검색 병렬 워커 수 (기본 8, 1이면 직렬). 초당 호출은 자동으로 제한됩니다.")
     parser.add_argument("--quiet", action="store_true", help="진행 로그 최소화")
     parser.add_argument("--debug", action="store_true", help="오류 시 전체 traceback 출력")
     args = parser.parse_args(argv)
@@ -87,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.typo_rules:
             set_extra_typo_rules(load_typo_rules(args.typo_rules))
-        summary = refine(args.input, args.output_dir, key, args.cache, verbose=not args.quiet)
+        summary = refine(args.input, args.output_dir, key, args.cache, verbose=not args.quiet, workers=args.workers)
     except Exception as exc:
         if args.debug:
             raise

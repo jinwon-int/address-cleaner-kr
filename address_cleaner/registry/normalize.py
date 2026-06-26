@@ -95,6 +95,9 @@ def typo_fix(value: Any) -> str:
 
 def clean_raw(value: Any) -> str:
     s = typo_fix(value)
+    # '3충'·'지하1충' 처럼 층(層)을 충으로 적은 오타 교정. '충청/충정로' 등은
+    # 충 뒤 글자로 걸러 건드리지 않는다.
+    s = re.sub(r"(\d)\s*충(?=\s|$|호|동|층|\d)", r"\1층", s)
     s = re.sub(r"\s*외\s*\d+\s*필지", "", s)
     s = re.sub(r"제\s*(\d+)\s*동", r"\1동", s)
     s = re.sub(r"제\s*([가-힣A-Za-z])\s*동", r"\1동", s)
@@ -102,6 +105,9 @@ def clean_raw(value: Any) -> str:
     s = re.sub(r"제\s*(\d+)\s*층", r"\1층", s)
     s = re.sub(r"제\s*([가-힣A-Za-z]?\d{1,4})\s*호", r"\1호", s)
     s = re.sub(r"제\s*([가-힣A-Za-z])\s*(\d{3,4})\s*호", r"\1동 \2호", s)
+    s = norm(s)
+    # 원문에 동·호가 통째로 두 번 적힌 경우('101동 504호 101동 504호') 한 번으로 접는다.
+    s = re.sub(r"((?:\d+|[A-Za-z가-힣])동\s*\d+호)(?:\s+\1)+", r"\1", s)
     return norm(s)
 
 
@@ -302,6 +308,24 @@ def unit_extract(raw: Any, final: Any, lot_addr: str) -> dict[str, str]:
     if floors:
         floor = floors[-1]
     return {"bld_dong": bld_dong, "floor": floor, "ho": ho}
+
+
+def unit_out_of_range(bld_dong: Any, ho: Any) -> str:
+    """동/호 추출값이 주소로 보기 어려운 범위면 사유 문자열을 돌려준다(정상은 "").
+
+    unit_extract는 '호' 접미사가 붙은 표기만 잡으므로 흔치는 않지만, 지번·연도 등이
+    호로 잘못 잡힌 경우(예: 0호, 12345호)를 검토 사유로 드러내 자동 통과를 막는다.
+    실제 데이터를 잘못 내리지 않도록 명백히 비정상인 값만 표시한다.
+    """
+    ho_nums = re.findall(r"\d+", str(ho))
+    if ho_nums:
+        n = int(ho_nums[-1])
+        if n == 0 or n > 9999:
+            return f"호수 범위 비정상({ho})"
+    dong_nums = re.findall(r"\d+", str(bld_dong))
+    if dong_nums and int(dong_nums[-1]) > 9999:
+        return f"동 표기 비정상({bld_dong})"
+    return ""
 
 
 def tail_after_actual_lot(raw: Any, lot_addr: str) -> str:
