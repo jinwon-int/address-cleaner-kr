@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 import openpyxl
@@ -20,6 +21,7 @@ from address_cleaner.registry.normalize import (
     strip_detail,
     strip_unit,
     typo_fix,
+    unit_out_of_range,
 )
 
 
@@ -95,6 +97,39 @@ class ExtraTypoRulesTest(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 load_typo_rules(bad_path)
+
+
+class CleanRawRobustnessTest(unittest.TestCase):
+    def test_collapses_duplicated_dong_ho_block(self) -> None:
+        self.assertEqual(
+            clean_raw("서울특별시 성북구 석관동 411 혜성스테이 101동 504호 101동 504호"),
+            "서울특별시 성북구 석관동 411 혜성스테이 101동 504호",
+        )
+
+    def test_fixes_floor_typo_chung(self) -> None:
+        self.assertEqual(
+            clean_raw("경기도 파주시 야당동 57-17 정우펠리스 제303동 제2충 제101호"),
+            "경기도 파주시 야당동 57-17 정우펠리스 303동 2층 101호",
+        )
+
+    def test_does_not_touch_chungcheong_or_chungjeong_road(self) -> None:
+        self.assertEqual(
+            clean_raw("충청북도 청주시 흥덕구 충정로 12 가나아파트 101호"),
+            "충청북도 청주시 흥덕구 충정로 12 가나아파트 101호",
+        )
+
+
+class UnitRangeGuardTest(unittest.TestCase):
+    def test_plausible_unit_is_ok(self) -> None:
+        self.assertEqual(unit_out_of_range("101", "504"), "")
+        self.assertEqual(unit_out_of_range("", "B101"), "")
+
+    def test_absurd_ho_is_flagged(self) -> None:
+        self.assertTrue(unit_out_of_range("", "12345"))
+        self.assertTrue(unit_out_of_range("", "0"))
+
+    def test_absurd_dong_is_flagged(self) -> None:
+        self.assertTrue(unit_out_of_range("12345", "101"))
 
 
 class ParseLotAddrTest(unittest.TestCase):
@@ -240,6 +275,65 @@ class RegistryExactOnePolicyTest(unittest.TestCase):
         self.assertEqual(row["JUSO_2차판정"], "자동추천_높음")
         self.assertEqual(row["주소검토결과"], "검토후조회")
         self.assertIn("Juso 1차 다중검출_원문", row["등기_검토사유"] or "")
+
+class ParallelRefineTest(unittest.TestCase):
+    """병렬 워커로 여러 행을 처리해도 결과가 결정적이고 누락이 없어야 한다."""
+
+    def _run(self, addresses: list[str], workers: int) -> dict[str, dict[str, Any]]:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            input_file = tmp_path / "input.xlsx"
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Sheet1"
+            ws["A1"] = "대상 임대차계약 주소"
+            for i, addr in enumerate(addresses, start=2):
+                ws.cell(i, 1).value = addr
+            wb.save(input_file)
+
+            def fake_juso_query(_session, _key, keyword, _cache, count=5, preserve_commas=False):
+                # 호출 간 공유 상태 없이 키워드만으로 결정되는 스레드 안전한 가짜 응답.
+                row = {
+                    "roadAddr": f"{keyword} (도로명)",
+                    "roadAddrPart1": keyword,
+                    "jibunAddr": keyword,
+                    "bdNm": "",
+                    "zipNo": "00000",
+                    "admCd": "1111111111",
+                }
+                return {"keyword": keyword, "total": 1, "rows": [row][:count]}
+
+            with mock.patch("address_cleaner.registry.excel.juso_query", side_effect=fake_juso_query):
+                refine(input_file, tmp_path / "out", "dummy-key", verbose=False, workers=workers)
+
+            out_wb = openpyxl.load_workbook(tmp_path / "out" / "input_등기소전체검색용_최종검색주소추가.xlsx")
+            out_ws = out_wb["Sheet1"]
+            headers = {out_ws.cell(1, c).value: c for c in range(1, out_ws.max_column + 1)}
+            result: dict[str, dict[str, Any]] = {}
+            for i in range(2, out_ws.max_row + 1):
+                result[out_ws.cell(i, 1).value] = {
+                    "JUSO_판정": out_ws.cell(i, headers["JUSO_판정"]).value,
+                    "JUSO_총건수": out_ws.cell(i, headers["JUSO_총건수"]).value,
+                    "주소검토결과": out_ws.cell(i, headers["주소검토결과"]).value,
+                }
+            return result
+
+    def test_parallel_matches_serial_and_covers_all_rows(self) -> None:
+        addresses = [
+            "서울특별시 강남구 역삼동 123-4 가나아파트 101호",
+            "인천광역시 연수구 송도동 55-1 나라빌 902호",
+            "경기도 성남시 분당구 정자동 77-7 다온타워 1503호",
+        ]
+        parallel = self._run(addresses, workers=8)
+        serial = self._run(addresses, workers=1)
+
+        self.assertEqual(parallel, serial)
+        self.assertEqual(set(parallel), set(addresses))
+        for addr in addresses:
+            self.assertEqual(parallel[addr]["JUSO_판정"], "검색가능_단일_원문")
+            self.assertEqual(parallel[addr]["JUSO_총건수"], 1)
+            self.assertEqual(parallel[addr]["주소검토결과"], "바로조회가능")
+
 
 class BackwardCompatImportTest(unittest.TestCase):
     def test_cli_still_re_exports_refactored_functions(self) -> None:

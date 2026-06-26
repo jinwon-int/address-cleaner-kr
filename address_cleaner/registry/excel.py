@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,8 @@ import openpyxl
 import requests
 
 from .juso import (
+    RateLimiter,
+    cache_lock,
     candidate_id,
     first_pass_status,
     juso_query,
@@ -19,6 +22,7 @@ from .juso import (
     make_queries,
     save_cache,
     score_candidate,
+    set_rate_limiter,
 )
 from .normalize import (
     building_name,
@@ -30,7 +34,13 @@ from .normalize import (
     suffix_dong,
     suffix_ho,
     unit_extract,
+    unit_out_of_range,
 )
+
+# 콜드 캐시 첫 실행의 벽시계 시간을 줄이는 병렬 처리 설정.
+# 워커가 늘어도 전역 레이트리미터가 초당 호출을 MAX_REQ_PER_SEC 이하로 묶는다.
+DEFAULT_WORKERS = 8
+MAX_REQ_PER_SEC = 10.0
 
 JUSO_COLUMNS = [
     "JUSO_판정", "JUSO_검색어", "JUSO_총건수", "JUSO_도로명주소_1", "JUSO_지번주소_1",
@@ -75,10 +85,18 @@ def add_or_replace_sheet(wb: Any, name: str) -> Any:
     return wb.create_sheet(name)
 
 
-def refine(input_file: Path, output_dir: Path, key: str, cache_file: Path | None = None, verbose: bool = True) -> dict[str, Any]:
+def refine(
+    input_file: Path,
+    output_dir: Path,
+    key: str,
+    cache_file: Path | None = None,
+    verbose: bool = True,
+    workers: int = DEFAULT_WORKERS,
+) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     cache_file = cache_file or (output_dir / f"{input_file.stem}_juso_cache.json")
     cache = load_cache(cache_file)
+    workers = max(1, int(workers))
 
     wb = openpyxl.load_workbook(input_file)
     ws = wb["Sheet1"] if "Sheet1" in wb.sheetnames else wb.active
@@ -95,27 +113,45 @@ def refine(input_file: Path, output_dir: Path, key: str, cache_file: Path | None
         return norm(get_cell(ws, row, headers, "최종주소") or get_cell(ws, row, headers, "대상 임대차계약 주소"))
 
     session = requests.Session()
+    limiter = RateLimiter(MAX_REQ_PER_SEC) if workers > 1 else None
 
     # 1차 Juso 검사: source address unique 기준 캐시.
     final_addresses = [source_addr(r) for r in range(2, ws.max_row + 1)]
     unique_addresses = sorted({x for x in final_addresses if x})
     first_items: dict[str, Any] = {}
+
+    def first_pass(addr: str) -> dict[str, Any]:
+        item_key = f"first:{addr}"
+        with cache_lock():
+            cached = cache.get(item_key)
+        if cached is not None:
+            return cached
+        full = juso_query(session, key, addr, cache, count=5, preserve_commas=True)
+        stripped = strip_detail(addr)
+        normalized = (
+            juso_query(session, key, stripped, cache, count=5, preserve_commas=True)
+            if full["total"] == 0 and stripped and stripped != addr
+            else None
+        )
+        status, best = first_pass_status(full, normalized)
+        item = {"address": addr, "normalizedKeyword": stripped, "full": full, "normalized": normalized, "status": status, "best": best}
+        with cache_lock():
+            cache[item_key] = item
+        return item
+
+    set_rate_limiter(limiter)
     try:
-        for idx, addr in enumerate(unique_addresses, 1):
-            item_key = f"first:{addr}"
-            if item_key not in cache:
-                full = juso_query(session, key, addr, cache, count=5, preserve_commas=True)
-                stripped = strip_detail(addr)
-                normalized = juso_query(session, key, stripped, cache, count=5, preserve_commas=True) if full["total"] == 0 and stripped and stripped != addr else None
-                status, best = first_pass_status(full, normalized)
-                cache[item_key] = {"address": addr, "normalizedKeyword": stripped, "full": full, "normalized": normalized, "status": status, "best": best}
-                if idx % 50 == 0:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(first_pass, addr): addr for addr in unique_addresses}
+            for done, future in enumerate(as_completed(futures), 1):
+                first_items[futures[future]] = future.result()
+                if done % 50 == 0:
                     save_cache(cache_file, cache)
                     if verbose:
-                        print(f"Juso 1차 {idx}/{len(unique_addresses)}", flush=True)
-            first_items[addr] = cache[item_key]
+                        print(f"Juso 1차 {done}/{len(unique_addresses)}", flush=True)
     finally:
         # 중간에 실패해도 지금까지 받은 API 응답은 보존한다.
+        set_rate_limiter(None)
         save_cache(cache_file, cache)
 
     first_counter: Counter[str] = Counter()
@@ -141,52 +177,71 @@ def refine(input_file: Path, output_dir: Path, key: str, cache_file: Path | None
 
     # 2차 좁힘.
     second_counter: Counter[str] = Counter()
+    # openpyxl은 스레드 안전이 아니므로 셀 읽기는 메인스레드에서 먼저 모으고,
+    # API 검색·스코어링만 워커에서 병렬로 돌린 뒤 결과를 메인스레드가 직렬로 쓴다.
+    second_inputs = [
+        (
+            r,
+            get_cell(ws, r, headers, "대상 임대차계약 주소"),
+            source_addr(r),
+            get_cell(ws, r, headers, "도로명_완성"),
+            get_cell(ws, r, headers, "지번_완성"),
+        )
+        for r in target_rows
+    ]
+
+    def second_pass(raw: Any, final: str, roadc: Any, jibunc: Any) -> list[Any]:
+        queries = make_queries(raw, final, roadc, jibunc)
+        candidates: dict[str, dict[str, Any]] = {}
+        for q in queries:
+            res = juso_query(session, key, q, cache, count=30)
+            for row in res.get("rows") or []:
+                cid = candidate_id(row)
+                candidates.setdefault(cid, {"row": row, "queries": []})["queries"].append({"keyword": res["keyword"], "total": res["total"]})
+        scored: list[tuple[int, str, dict[str, Any], list[str]]] = []
+        for cid, obj in candidates.items():
+            score, reasons = score_candidate(obj["row"], raw, final, roadc, jibunc, obj["queries"])
+            scored.append((score, cid, obj, reasons))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        if not scored:
+            return ["수동검토", 0, 0, "", "", "", "", "후보없음", "\n".join(queries), ""]
+        score, _cid, obj, reasons = scored[0]
+        second = scored[1][0] if len(scored) > 1 else 0
+        margin = score - second
+        row = obj["row"]
+        if score >= 80 and margin >= 15:
+            decision = "자동추천_높음"
+        elif score >= 65 and margin >= 10:
+            decision = "자동추천_중간"
+        elif score >= 50:
+            decision = "후보1_검토"
+        else:
+            decision = "수동검토"
+        return [
+            decision, score, margin, row.get("roadAddr", ""), row.get("jibunAddr", ""), row.get("zipNo", ""), row.get("admCd", ""),
+            "; ".join(reasons), "\n".join(f"{x['keyword']} ({x['total']})" for x in obj["queries"][:6]),
+            "\n".join(f"{i+1}. [{s}] {o['row'].get('roadAddr','')} / {o['row'].get('jibunAddr','')}" for i, (s, _, o, _) in enumerate(scored[:5])),
+        ]
+
+    second_values: dict[int, list[Any]] = {}
+    set_rate_limiter(limiter)
     try:
-        for idx, r in enumerate(target_rows, 1):
-            raw = get_cell(ws, r, headers, "대상 임대차계약 주소")
-            final = source_addr(r)
-            roadc = get_cell(ws, r, headers, "도로명_완성")
-            jibunc = get_cell(ws, r, headers, "지번_완성")
-            queries = make_queries(raw, final, roadc, jibunc)
-            candidates: dict[str, dict[str, Any]] = {}
-            for q in queries:
-                res = juso_query(session, key, q, cache, count=30)
-                for row in res.get("rows") or []:
-                    cid = candidate_id(row)
-                    candidates.setdefault(cid, {"row": row, "queries": []})["queries"].append({"keyword": res["keyword"], "total": res["total"]})
-            scored: list[tuple[int, str, dict[str, Any], list[str]]] = []
-            for cid, obj in candidates.items():
-                score, reasons = score_candidate(obj["row"], raw, final, roadc, jibunc, obj["queries"])
-                scored.append((score, cid, obj, reasons))
-            scored.sort(key=lambda x: x[0], reverse=True)
-            if scored:
-                score, _cid, obj, reasons = scored[0]
-                second = scored[1][0] if len(scored) > 1 else 0
-                margin = score - second
-                row = obj["row"]
-                if score >= 80 and margin >= 15:
-                    decision = "자동추천_높음"
-                elif score >= 65 and margin >= 10:
-                    decision = "자동추천_중간"
-                elif score >= 50:
-                    decision = "후보1_검토"
-                else:
-                    decision = "수동검토"
-                values = [
-                    decision, score, margin, row.get("roadAddr", ""), row.get("jibunAddr", ""), row.get("zipNo", ""), row.get("admCd", ""),
-                    "; ".join(reasons), "\n".join(f"{x['keyword']} ({x['total']})" for x in obj["queries"][:6]),
-                    "\n".join(f"{i+1}. [{s}] {o['row'].get('roadAddr','')} / {o['row'].get('jibunAddr','')}" for i, (s, _, o, _) in enumerate(scored[:5])),
-                ]
-            else:
-                values = ["수동검토", 0, 0, "", "", "", "", "후보없음", "\n".join(queries), ""]
-            second_counter[values[0]] += 1
-            set_row_values(ws, r, headers, JUSO2_COLUMNS, values)
-            if idx % 50 == 0:
-                save_cache(cache_file, cache)
-                if verbose:
-                    print(f"Juso 2차 {idx}/{len(target_rows)}", flush=True)
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(second_pass, raw, final, roadc, jibunc): r for (r, raw, final, roadc, jibunc) in second_inputs}
+            for done, future in enumerate(as_completed(futures), 1):
+                second_values[futures[future]] = future.result()
+                if done % 50 == 0:
+                    save_cache(cache_file, cache)
+                    if verbose:
+                        print(f"Juso 2차 {done}/{len(target_rows)}", flush=True)
     finally:
+        set_rate_limiter(None)
         save_cache(cache_file, cache)
+
+    for r in target_rows:
+        values = second_values[r]
+        second_counter[values[0]] += 1
+        set_row_values(ws, r, headers, JUSO2_COLUMNS, values)
 
     # 등기소 전체검색어 생성.
     final_counter: Counter[str] = Counter()
@@ -214,6 +269,9 @@ def refine(input_file: Path, output_dir: Path, key: str, cache_file: Path | None
             reasons.append("지번주소 없음")
         if not unit["ho"]:
             reasons.append("호실 없음")
+        unit_warning = unit_out_of_range(unit["bld_dong"], unit["ho"])
+        if unit_warning:
+            reasons.append(unit_warning)
         if juso2 in {"수동검토", "후보1_검토"}:
             reasons.append(f"Juso 2차 {juso2}")
         if has_extra_parcels(raw):
