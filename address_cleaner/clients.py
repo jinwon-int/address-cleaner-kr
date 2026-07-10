@@ -88,49 +88,87 @@ class SearchResult:
 class JusoClient:
     endpoint = JUSO_ENDPOINT
 
-    def __init__(self, key: str | None = None, timeout: float = 5.0):
+    def __init__(
+        self,
+        key: str | None = None,
+        timeout: float = 5.0,
+        session: requests.Session | None = None,
+    ):
         self.key = key or juso_key_from_env()
         self.timeout = timeout
+        # 병렬 검증에서 커넥션을 재사용하도록 Session 주입을 지원한다 (기본은 단발 요청).
+        self.session = session
 
     def search(self, keyword: str, count: int = 10) -> SearchResult:
         if not self.key:
             raise RuntimeError("JUSO_CONFIRM_KEY is required for juso.go.kr validation")
-        result = request_juso(self.key, keyword, count, timeout=self.timeout)
+        result = request_juso(
+            self.key, keyword, count, timeout=self.timeout, session=self.session
+        )
         if "error_code" in result:
             return SearchResult(
                 "juso",
                 0,
-                {"errorCode": result["error_code"], "errorMessage": result["error_message"]},
+                {
+                    "errorCode": result["error_code"],
+                    "errorMessage": result["error_message"],
+                },
                 result["raw"],
             )
         rows = result["rows"]
-        return SearchResult("juso", result["total"], rows[0] if rows else {}, result["raw"])
+        return SearchResult(
+            "juso", result["total"], rows[0] if rows else {}, result["raw"]
+        )
+
+
+# 우정사업본부 엔드포인트는 아직 http가 기본이다 (ServiceKey 평문 전송 이슈,
+# README 보안 원칙 참고). 운영망에서 https 응답이 확인되면 EPOST_ENDPOINT
+# 환경변수로 먼저 전환해 검증한 뒤 이 기본값을 교체한다.
+EPOST_DEFAULT_ENDPOINT = (
+    "http://openapi.epost.go.kr:80/postal/retrieveNewAdressAreaCdService/"
+    "retrieveNewAdressAreaCdService/getNewAddressListAreaCd"
+)
 
 
 class KoreaPostRoadNameClient:
-    endpoint = (
-        "http://openapi.epost.go.kr:80/postal/retrieveNewAdressAreaCdService/"
-        "retrieveNewAdressAreaCdService/getNewAddressListAreaCd"
-    )
-
-    def __init__(self, key: str | None = None, timeout: float = 5.0):
-        self.key = next((os.getenv(name) for name in EPOST_KEY_ENV_VARS if os.getenv(name)), None) if key is None else key
+    def __init__(
+        self,
+        key: str | None = None,
+        timeout: float = 5.0,
+        session: requests.Session | None = None,
+    ):
+        # 클래스 속성이 아니라 생성 시점에 읽어 import 시점 고정을 피한다.
+        self.endpoint = os.getenv("EPOST_ENDPOINT") or EPOST_DEFAULT_ENDPOINT
+        self.key = (
+            next(
+                (os.getenv(name) for name in EPOST_KEY_ENV_VARS if os.getenv(name)),
+                None,
+            )
+            if key is None
+            else key
+        )
         self.timeout = timeout
+        self.session = session
 
-    def search(self, keyword: str, search_se: str = "road", count: int = 10, retries: int = 3) -> SearchResult:
+    def search(
+        self, keyword: str, search_se: str = "road", count: int = 10, retries: int = 3
+    ) -> SearchResult:
         if not self.key:
-            raise RuntimeError("EPOST_SERVICE_KEY is required for Korea Post validation")
+            raise RuntimeError(
+                "EPOST_SERVICE_KEY is required for Korea Post validation"
+            )
         params = {
             "ServiceKey": self.key,
             "searchSe": search_se,
             "srchwrd": keyword,
-            "countPerPage": count,
-            "currentPage": 1,
+            "countPerPage": str(count),
+            "currentPage": "1",
         }
+        get = self.session.get if self.session is not None else requests.get
         # Juso 쪽 request_juso와 같은 기준으로 일시적 네트워크 오류/깨진 응답을 재시도한다.
         for attempt in range(retries + 1):
             try:
-                response = requests.get(self.endpoint, params=params, timeout=self.timeout)
+                response = get(self.endpoint, params=params, timeout=self.timeout)
                 response.raise_for_status()
                 text = response.text
                 root = ET.fromstring(text)
@@ -144,7 +182,10 @@ class KoreaPostRoadNameClient:
             return SearchResult(
                 "epost",
                 0,
-                {"returnCode": return_code, "returnMessage": _text(root, ".//returnMessage")},
+                {
+                    "returnCode": return_code,
+                    "returnMessage": _text(root, ".//returnMessage"),
+                },
                 text,
             )
         total = int(_text(root, ".//totalCount") or _text(root, ".//totalCnt") or "0")

@@ -1,22 +1,32 @@
-"""Juso(도로명주소) API 클라이언트, 응답 캐시, 후보 검색어 생성·스코어링."""
+"""Juso(도로명주소) 후보 검색어 생성·스코어링 (등기 모드 전용).
+
+캐시·레이트리미터·juso_query 등 검색 인프라는 일반 excel 모드와 공유하는
+address_cleaner/juso_search.py로 옮겨졌고, 기존 import 경로 하위호환을 위해
+여기서 그대로 re-export 한다.
+"""
 
 from __future__ import annotations
 
-import json
-import threading
-import time
-from pathlib import Path
 from typing import Any
 
-import requests
-
-from ..clients import JUSO_ENDPOINT, request_juso
+from ..clients import JUSO_ENDPOINT
+from ..juso_search import (  # noqa: F401
+    DEFAULT_CACHE_MAX_AGE_DAYS,
+    RateLimiter,
+    cache_entry_fresh,
+    cache_lock,
+    juso_query,
+    load_cache,
+    save_cache,
+    set_cache_max_age_days,
+    set_rate_limiter,
+    stamp_cache_entry,
+)
 from .normalize import (
     building_tokens,
     clean_raw,
     district_key,
     dong_key,
-    juso_keyword,
     lot_key,
     lot_variants,
     norm,
@@ -28,89 +38,9 @@ from .normalize import (
 API_URL = JUSO_ENDPOINT
 
 
-class RateLimiter:
-    """스레드 간 공유하는 전역 토큰버킷. 여러 워커가 동시에 호출해도
-    초당 호출 수를 max_per_sec 이하로 묶어 API 차단/RemoteDisconnected를 줄인다.
-    """
-
-    def __init__(self, max_per_sec: float):
-        self._interval = 1.0 / max_per_sec if max_per_sec > 0 else 0.0
-        self._lock = threading.Lock()
-        self._next = 0.0
-
-    def wait(self) -> None:
-        if self._interval <= 0:
-            return
-        with self._lock:
-            now = time.monotonic()
-            delay = self._next - now
-            if delay > 0:
-                time.sleep(delay)
-                now = time.monotonic()
-            self._next = max(now, self._next) + self._interval
-
-
-# 캐시는 1차/2차 워커와 save_cache가 함께 만지므로 단일 락으로 보호한다.
-# (dict 쓰기는 GIL로 원자적이지만 save_cache의 json.dumps가 순회 중이면 깨진다.)
-_CACHE_LOCK = threading.Lock()
-_RATE_LIMITER: RateLimiter | None = None
-
-
-def cache_lock() -> threading.Lock:
-    return _CACHE_LOCK
-
-
-def set_rate_limiter(limiter: RateLimiter | None) -> None:
-    """병렬 처리 동안만 전역 레이트리미터를 켠다. 직렬 처리(기본)에서는 None."""
-    global _RATE_LIMITER
-    _RATE_LIMITER = limiter
-
-
-def load_cache(cache_file: Path) -> dict[str, Any]:
-    if not cache_file.exists():
-        return {}
-    try:
-        return json.loads(cache_file.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        # 이전 실행이 저장 도중 끊겨 캐시가 깨졌으면 버리고 새로 시작한다.
-        return {}
-
-
-def save_cache(cache_file: Path, cache: dict[str, Any]) -> None:
-    # 병렬 워커가 cache를 쓰는 중에 직렬화하면 "dict changed size" 오류가 나므로
-    # 캐시 락을 잡은 채로 스냅샷을 만든다.
-    with _CACHE_LOCK:
-        payload = json.dumps(cache, ensure_ascii=False, indent=2)
-    tmp = cache_file.with_suffix(cache_file.suffix + ".tmp")
-    tmp.write_text(payload, encoding="utf-8")
-    tmp.replace(cache_file)
-
-
-def juso_query(session: requests.Session, key: str, keyword: str, cache: dict[str, Any], count: int = 5, preserve_commas: bool = False) -> dict[str, Any]:
-    keyword = juso_keyword(keyword, preserve_commas=preserve_commas)
-    if not keyword:
-        return {"keyword": "", "total": 0, "rows": []}
-    cache_key = f"{'raw' if preserve_commas else 'clean'}:{count}:{keyword}"
-    with _CACHE_LOCK:
-        if cache_key in cache:
-            return cache[cache_key]
-    limiter = _RATE_LIMITER
-    if limiter is not None:
-        limiter.wait()
-    data = request_juso(key, keyword, count, timeout=15, session=session)
-    if "error_code" in data:
-        res = {"keyword": keyword, "total": 0, "rows": [], "error": data["error_message"]}
-    else:
-        res = {"keyword": keyword, "total": data["total"], "rows": data["rows"][:count]}
-    with _CACHE_LOCK:
-        cache[cache_key] = res
-    if limiter is None:
-        # 직렬 처리 기본 경로의 호출 간격 유지(레이트리미터가 켜지면 그쪽이 페이싱).
-        time.sleep(0.04)
-    return res
-
-
-def first_pass_status(full: dict[str, Any], normalized: dict[str, Any] | None) -> tuple[str, dict[str, Any]]:
+def first_pass_status(
+    full: dict[str, Any], normalized: dict[str, Any] | None
+) -> tuple[str, dict[str, Any]]:
     if full["total"] == 1:
         return "검색가능_단일_원문", full
     if full["total"] >= 2:
@@ -122,14 +52,20 @@ def first_pass_status(full: dict[str, Any], normalized: dict[str, Any] | None) -
     return "검색불가", full
 
 
-def make_queries(raw: Any, final: Any, road_complete: Any, jibun_complete: Any) -> list[str]:
+def make_queries(
+    raw: Any, final: Any, road_complete: Any, jibun_complete: Any
+) -> list[str]:
     bases: list[str] = []
     for x in [raw, final, road_complete, jibun_complete]:
         c = clean_raw(x)
         if c:
             bases.extend([c, strip_unit(c), strip_building_tail_after_lot(c)])
             bases.extend(lot_variants(c))
-    all_cleaned = [clean_raw(x) for x in [raw, final, road_complete, jibun_complete] if clean_raw(x)]
+    all_cleaned = [
+        clean_raw(x)
+        for x in [raw, final, road_complete, jibun_complete]
+        if clean_raw(x)
+    ]
     for c in all_cleaned:
         rk = road_no_key(c)
         lk = lot_key(c)
@@ -155,14 +91,43 @@ def make_queries(raw: Any, final: Any, road_complete: Any, jibun_complete: Any) 
 
 
 def candidate_id(row: dict[str, Any]) -> str:
-    return "|".join(str(row.get(k, "")) for k in ["admCd", "rnMgtSn", "udrtYn", "buldMnnm", "buldSlno", "bdMgtSn", "lnbrMnnm", "lnbrSlno"])
+    return "|".join(
+        str(row.get(k, ""))
+        for k in [
+            "admCd",
+            "rnMgtSn",
+            "udrtYn",
+            "buldMnnm",
+            "buldSlno",
+            "bdMgtSn",
+            "lnbrMnnm",
+            "lnbrSlno",
+        ]
+    )
 
 
-def score_candidate(row: dict[str, Any], raw: Any, final: Any, road_complete: Any, jibun_complete: Any, hit_queries: list[dict[str, Any]]) -> tuple[int, list[str]]:
-    combined = norm(" ".join(str(row.get(k, "") or "") for k in ["roadAddr", "roadAddrPart1", "jibunAddr", "bdNm"]))
+def score_candidate(
+    row: dict[str, Any],
+    raw: Any,
+    final: Any,
+    road_complete: Any,
+    jibun_complete: Any,
+    hit_queries: list[dict[str, Any]],
+) -> tuple[int, list[str]]:
+    combined = norm(
+        " ".join(
+            str(row.get(k, "") or "")
+            for k in ["roadAddr", "roadAddrPart1", "jibunAddr", "bdNm"]
+        )
+    )
     road = norm(row.get("roadAddr") or row.get("roadAddrPart1") or "")
     jibun = norm(row.get("jibunAddr") or "")
-    texts = [clean_raw(raw), clean_raw(final), clean_raw(road_complete), clean_raw(jibun_complete)]
+    texts = [
+        clean_raw(raw),
+        clean_raw(final),
+        clean_raw(road_complete),
+        clean_raw(jibun_complete),
+    ]
     score = 0
     reasons: list[str] = []
     for lk in {lot_key(t) for t in texts if lot_key(t)}:
@@ -185,7 +150,11 @@ def score_candidate(row: dict[str, Any], raw: Any, final: Any, road_complete: An
             score += 10
             reasons.append(f"법정동일치:{dg}")
             break
-    matched = [t for t in building_tokens(raw, final, road_complete, jibun_complete) if t in combined.lower()]
+    matched = [
+        t
+        for t in building_tokens(raw, final, road_complete, jibun_complete)
+        if t in combined.lower()
+    ]
     if matched:
         score += min(25, 8 * len(matched))
         reasons.append("건물명일치:" + ",".join(matched[:3]))

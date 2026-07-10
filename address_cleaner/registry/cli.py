@@ -26,6 +26,7 @@ from .excel import (  # noqa: F401
 )
 from .juso import (  # noqa: F401
     API_URL,
+    DEFAULT_CACHE_MAX_AGE_DAYS,
     candidate_id,
     first_pass_status,
     juso_query,
@@ -33,6 +34,7 @@ from .juso import (  # noqa: F401
     make_queries,
     save_cache,
     score_candidate,
+    set_cache_max_age_days,
 )
 from .normalize import (  # noqa: F401
     KOR_DONG_MAP,
@@ -72,24 +74,63 @@ from .normalize import (  # noqa: F401
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="HUG 강제경매/우선신청 엑셀을 법원 부동산등기부등본 열람페이지 전체검색용 주소 파일로 정제합니다.")
+    parser = argparse.ArgumentParser(
+        description="HUG 강제경매/우선신청 엑셀을 법원 부동산등기부등본 열람페이지 전체검색용 주소 파일로 정제합니다."
+    )
     parser.add_argument("input", type=Path, help="입력 xlsx 파일")
-    parser.add_argument("-o", "--output-dir", type=Path, default=Path("out"), help="출력 디렉터리 (기본: out)")
-    parser.add_argument("--cache", type=Path, default=None, help="Juso API 캐시 JSON 경로")
-    parser.add_argument("--typo-rules", type=Path, default=None, help='추가 오타 교정 규칙 JSON 경로 (예: [["프루지오", "푸르지오"]])')
-    parser.add_argument("--workers", type=int, default=8, help="Juso 검색 병렬 워커 수 (기본 8, 1이면 직렬). 초당 호출은 자동으로 제한됩니다.")
+    parser.add_argument(
+        "-o",
+        "--output-dir",
+        type=Path,
+        default=Path("out"),
+        help="출력 디렉터리 (기본: out)",
+    )
+    parser.add_argument(
+        "--cache", type=Path, default=None, help="Juso API 캐시 JSON 경로"
+    )
+    parser.add_argument(
+        "--typo-rules",
+        type=Path,
+        default=None,
+        help='추가 오타 교정 규칙 JSON 경로 (예: [["프루지오", "푸르지오"]])',
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=8,
+        help="Juso 검색 병렬 워커 수 (기본 8, 1이면 직렬). 초당 호출은 자동으로 제한됩니다.",
+    )
+    parser.add_argument(
+        "--cache-max-age-days",
+        type=int,
+        default=DEFAULT_CACHE_MAX_AGE_DAYS,
+        help=f"JSON 캐시 만료 일수 (기본 {DEFAULT_CACHE_MAX_AGE_DAYS}, 0이면 만료 없음)",
+    )
     parser.add_argument("--quiet", action="store_true", help="진행 로그 최소화")
-    parser.add_argument("--debug", action="store_true", help="오류 시 전체 traceback 출력")
+    parser.add_argument(
+        "--debug", action="store_true", help="오류 시 전체 traceback 출력"
+    )
     args = parser.parse_args(argv)
 
     key = juso_key_from_env()
     if not key:
-        print("ERROR: JUSO_CONFM_KEY 또는 JUSO_API_KEY 환경변수가 필요합니다.", file=sys.stderr)
+        print(
+            "ERROR: JUSO_CONFM_KEY 또는 JUSO_API_KEY 환경변수가 필요합니다.",
+            file=sys.stderr,
+        )
         return 2
     try:
         if args.typo_rules:
             set_extra_typo_rules(load_typo_rules(args.typo_rules))
-        summary = refine(args.input, args.output_dir, key, args.cache, verbose=not args.quiet, workers=args.workers)
+        set_cache_max_age_days(args.cache_max_age_days)
+        summary = refine(
+            args.input,
+            args.output_dir,
+            key,
+            args.cache,
+            verbose=not args.quiet,
+            workers=args.workers,
+        )
     except Exception as exc:
         if args.debug:
             raise

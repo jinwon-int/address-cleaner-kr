@@ -9,12 +9,23 @@ on:
 permissions:
   contents: read
 
+env:
+  # Windows 러너의 CP949 콘솔 인코딩으로 pytest 출력이 깨지는 것을 막는다.
+  PYTHONUTF8: "1"
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest]
         python-version: ['3.10', '3.11', '3.12', '3.13']
+        # 후단 연동(파워쉘 자동입력)이 Windows 환경이므로 최소/최신 버전만 Windows에서도 검증한다.
+        include:
+          - os: windows-latest
+            python-version: '3.10'
+          - os: windows-latest
+            python-version: '3.13'
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -25,12 +36,19 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install package and test dependencies
+        # 작은따옴표는 PowerShell에서 그대로 전달되므로 큰따옴표로 통일한다.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e '.[dev]'
+          python -m pip install -e ".[dev]"
 
       - name: Lint
-        run: ruff check .
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Type check
+        run: mypy
 
       - name: Run tests
-        run: pytest -q
+        # fail-under는 실측 커버리지(91%)보다 약간 낮게 잡아 회귀만 막는다.
+        run: pytest -q --cov=address_cleaner --cov-report=term-missing --cov-fail-under=88

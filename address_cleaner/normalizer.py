@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from .regions import ALL_SIDO_NAMES
+from .typo import apply_typo_replacements
 
 
 PAREN_CONTENT_RE = re.compile(r"\([^)]*\)")
@@ -35,14 +36,25 @@ LOT_QUERY_RE = re.compile(
     r"(?P<num>산?\s*\d+(?:-\d+)?)\b"
 )
 HANGUL_RE = re.compile(r"[가-힣]")
-ADDRESS_TOKEN_RE = re.compile(r"(?:특별시|광역시|특별자치시|특별자치도|도|시|군|구|읍|면|동|리|가|대로|번길|로|길)")
+ADDRESS_TOKEN_RE = re.compile(
+    r"(?:특별시|광역시|특별자치시|특별자치도|도|시|군|구|읍|면|동|리|가|대로|번길|로|길)"
+)
 ADDRESS_NUMBER_RE = re.compile(r"(?:산\s*)?\d+(?:-\d+)?")
 SQL_FILTER_RE = re.compile(r"[%=><\[\]]")
 SQL_WORD_RE = re.compile(
     r"\b(OR|SELECT|INSERT|DELETE|UPDATE|CREATE|DROP|EXEC|UNION|FETCH|DECLARE|TRUNCATE)\b",
     re.IGNORECASE,
 )
-COMMON_INVALID_MARKERS = {"주소없음", "미상", "없음", "미정", "확인중", "해당없음", "불명", "없다"}
+COMMON_INVALID_MARKERS = {
+    "주소없음",
+    "미상",
+    "없음",
+    "미정",
+    "확인중",
+    "해당없음",
+    "불명",
+    "없다",
+}
 
 
 @dataclass(frozen=True)
@@ -80,12 +92,15 @@ def preprocess_raw_address(raw_addr: Any) -> str:
     text = text.replace("\t", " ")
     text = re.sub(r"[\x00-\x1f]", " ", text)
     text = ZIPCODE_RE.sub("", text).strip()
+    # 수확(--corrections-out)→검토→승격된 오타 규칙을 등기 모드와 같은 지점(원문
+    # 정리 단계)에서 적용해, ROAD/LOT 골격 매칭 전에 오타가 교정되게 한다.
+    text = apply_typo_replacements(text)
 
     # 시/도 명칭은 regions.py가 단일 출처다 (구명칭 포함).
     sido_keywords = ALL_SIDO_NAMES
     for sido in sido_keywords:
         if text.count(sido) >= 2:
-            text = text[text.rfind(sido):]
+            text = text[text.rfind(sido) :]
             break
 
     chars: list[str] = []
@@ -99,9 +114,10 @@ def preprocess_raw_address(raw_addr: Any) -> str:
     text = "".join(chars)
 
     placeholders: list[str] = []
+
     def protect(match: re.Match[str]) -> str:
         placeholders.append(match.group(0))
-        return f"__P{len(placeholders)-1}__"
+        return f"__P{len(placeholders) - 1}__"
 
     text = PAREN_CONTENT_RE.sub(protect, text)
     text = ET_AL_RE.sub("", text)
@@ -125,7 +141,9 @@ def preprocess_raw_address(raw_addr: Any) -> str:
     text = re.sub(r"^([가-힣]+도)(?=[가-힣])", r"\1 ", text)
     head, tail = text[:80], text[80:]
     head = re.sub(r"([가-힣]{2,}시)([가-힣]{2,}구)(?=[가-힣\s]|$)", r"\1 \2", head)
-    head = re.sub(r"([가-힣]+(?:시|군|구))([가-힣]{2,}(?:읍|면|동|리|로|길))", r"\1 \2", head)
+    head = re.sub(
+        r"([가-힣]+(?:시|군|구))([가-힣]{2,}(?:읍|면|동|리|로|길))", r"\1 \2", head
+    )
     head = re.sub(r"([가-힣]{2,}(?:읍|면|동|리))(\d)", r"\1 \2", head)
     head = re.sub(r"(번길)(\d)", r"\1 \2", head)
     text = head + tail
@@ -163,13 +181,25 @@ def _cut_detail(text: str) -> str:
 
 def normalize_for_search(raw_addr: Any) -> NormalizedAddress:
     original = to_addr_str(raw_addr)
-    cleaned = strip_floor_detail(strip_api_unsafe_tokens(preprocess_raw_address(original)))
+    cleaned = strip_floor_detail(
+        strip_api_unsafe_tokens(preprocess_raw_address(original))
+    )
     if not cleaned:
-        return NormalizedAddress(original=original, query="", kind="empty", status="empty")
+        return NormalizedAddress(
+            original=original, query="", kind="empty", status="empty"
+        )
     if cleaned in COMMON_INVALID_MARKERS:
-        return NormalizedAddress(original=original, query="", kind="invalid", status="invalid_marker")
+        return NormalizedAddress(
+            original=original, query="", kind="invalid", status="invalid_marker"
+        )
     if _looks_malformed(cleaned):
-        return NormalizedAddress(original=original, query="", kind="invalid", status="malformed", detail=cleaned)
+        return NormalizedAddress(
+            original=original,
+            query="",
+            kind="invalid",
+            status="malformed",
+            detail=cleaned,
+        )
 
     base = cleaned
 
@@ -180,7 +210,7 @@ def normalize_for_search(raw_addr: Any) -> NormalizedAddress:
             query=cleaned,
             kind="road",
             status="ok",
-            detail=cleaned[road_match.end():].strip(),
+            detail=cleaned[road_match.end() :].strip(),
         )
 
     lot_match = LOT_QUERY_RE.match(base)
@@ -190,11 +220,17 @@ def normalize_for_search(raw_addr: Any) -> NormalizedAddress:
             query=cleaned,
             kind="lot",
             status="ok",
-            detail=cleaned[lot_match.end():].strip(),
+            detail=cleaned[lot_match.end() :].strip(),
         )
 
     fallback = normalize_spaces(_cut_detail(cleaned))
-    return NormalizedAddress(original=original, query="", kind="invalid", status="unrecognized", detail=fallback)
+    return NormalizedAddress(
+        original=original,
+        query="",
+        kind="invalid",
+        status="unrecognized",
+        detail=fallback,
+    )
 
 
 def base_for_search(query: str, kind: str) -> str:
