@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import json
 from pathlib import Path
-import time
 from typing import Any, Literal
 
 import openpyxl
+import requests
 
 from .clients import JusoClient, KoreaPostRoadNameClient, SearchResult
 from .history import VerifyHistory
+from .juso_search import RateLimiter
 from .normalizer import base_for_search, compact_for_epost, normalize_for_search
 from .regions import AdminDict
 
@@ -28,8 +30,13 @@ LOCAL_STATUS_KO = {
     "unrecognized": "지번/도로명 골격을 찾지 못함",
 }
 
-# 연속 호출로 API가 차단되지 않도록 실제 호출 사이에만 두는 간격(초)
-API_CALL_INTERVAL = 0.05
+# 등기 모드와 동일 기준의 병렬 검증 설정. 워커가 늘어도 provider별 전역
+# 레이트리미터가 초당 호출 수를 MAX_REQ_PER_SEC 이하로 묶는다.
+DEFAULT_WORKERS = 8
+MAX_REQ_PER_SEC = 10.0
+
+# (판정, 사람이 읽을 검증 상세, 교정 후보)
+VerifyOutcome = tuple[str, str, "dict[str, str] | None"]
 
 
 def col_to_index(col: str) -> int:
@@ -58,7 +65,16 @@ def process_workbook(
     admin_dict: AdminDict | None = None,
     history: VerifyHistory | None = None,
     corrections_path: str | Path | None = None,
+    workers: int = DEFAULT_WORKERS,
 ) -> dict[str, int]:
+    """엑셀을 정제·검증한다. openpyxl 워크시트는 스레드 안전하지 않으므로
+    셀 접근과 SQLite 이력 접근은 메인 스레드로 한정하는 2패스 구조다.
+
+    1패스: 행 순회 — 정제·로컬 판정(빈 행/무효/법정동 사전)은 즉시 확정하고,
+           API 검증이 필요한 고유 (검색어, 종류)만 모은다 (이력 재사용분 제외).
+    병렬:  고유 검색어만 ThreadPoolExecutor(workers)로 _verify. workers=1이면 직렬.
+    2패스: 행 순회하며 결과를 셀에 기록하고 stats/교정 후보를 집계한다.
+    """
     wb = openpyxl.load_workbook(input_path)
     ws = wb.active
     source_idx = col_to_index(source_col)
@@ -85,6 +101,12 @@ def process_workbook(
         raise RuntimeError(
             "At least one API key is required when --mark-missing validates provider results"
         )
+    # 커넥션 재사용을 위한 공유 Session (등기 모드와 동일 패턴 — Session은 스레드 안전).
+    session = requests.Session()
+    if juso is not None:
+        juso.session = session
+    if epost is not None:
+        epost.session = session
 
     stats = {
         "total": 0,
@@ -101,9 +123,15 @@ def process_workbook(
     }
     start_row = 2 if header else 1
     # 같은 원주소가 여러 행에 반복되는 파일이 흔해서 검증 결과를 재사용한다.
-    verify_cache: dict[tuple[str, str], tuple[str, str, dict[str, str] | None]] = {}
+    verify_cache: dict[tuple[str, str], VerifyOutcome] = {}
     # 교정 후보: (원문, 통한 검색어) 단위로 모아 어떤 행들에서 나왔는지 누적한다.
     corrections: dict[tuple[str, str], dict[str, Any]] = {}
+
+    # 1패스 (메인 스레드): 정제·로컬 판정 확정 + 검증 대상 수집.
+    local_rows: list[tuple[int, str, str]] = []  # (행, 상태, 검증상세) — 확정분
+    verify_rows: list[tuple[int, tuple[str, str]]] = []  # (행, 검증 키) — 대기분
+    to_verify: list[tuple[str, str]] = []  # API 호출이 필요한 고유 키 (행 순서 유지)
+    queued: set[tuple[str, str]] = set()  # to_verify 중복 검사용
     for row in range(start_row, ws.max_row + 1):
         raw = ws.cell(row=row, column=source_idx).value
         normalized = normalize_for_search(raw)
@@ -111,80 +139,114 @@ def process_workbook(
         stats["total"] += 1
         stats[normalized.kind if normalized.kind in stats else "invalid"] += 1
 
-        if status_idx:
+        if not status_idx:
+            continue
+        if normalized.kind == "empty":
+            # 원주소가 비어 있는 행(서식만 남은 말미 행 포함)은 검토 대상이
+            # 아니므로 상태를 비워 둬 후단 자동화가 불량 주소와 혼동하지 않게 한다.
+            local_rows.append((row, "", ""))
+        elif not normalized.searchable:
+            local_rows.append(
+                (
+                    row,
+                    STATUS_NOT_FOUND,
+                    LOCAL_STATUS_KO.get(normalized.status, normalized.status),
+                )
+            )
+            stats["missing"] += 1
+        elif admin_dict is not None and (
+            dict_reason := _admin_combo_missing(
+                normalized.query, normalized.kind, admin_dict
+            )
+        ):
+            # 법정동 사전 오프라인 검증: API 호출 전에 실존하지 않는 행정구역을 거른다.
+            local_rows.append((row, STATUS_NOT_FOUND, dict_reason))
+            stats["missing"] += 1
+        elif mark_missing and (juso is not None or epost is not None):
+            cache_key = (normalized.query, normalized.kind)
+            verify_rows.append((row, cache_key))
+            if cache_key in verify_cache or cache_key in queued:
+                continue
+            # 이력 조회는 메인 스레드에서 미리 끝내 병렬 대상에서 제외한다.
+            fresh = history.fresh(*cache_key) if history else None
+            if fresh is not None:
+                verify_cache[cache_key] = (
+                    fresh.verdict,
+                    f"{fresh.detail} (이력 재사용 {fresh.checked_at[:10]})",
+                    None,
+                )
+                stats["history_reused"] += 1
+            else:
+                to_verify.append(cache_key)
+                queued.add(cache_key)
+        else:
+            local_rows.append((row, "", ""))
+
+    # 병렬 구간: 고유 (검색어, 종류)만 검증한다. 셀/이력은 건드리지 않는 순수 계산.
+    if to_verify:
+        juso_limiter = RateLimiter(MAX_REQ_PER_SEC)
+        epost_limiter = RateLimiter(MAX_REQ_PER_SEC)
+
+        def verify_one(key: tuple[str, str]) -> VerifyOutcome:
+            return _verify(
+                key[0],
+                key[1],
+                juso,
+                epost,
+                juso_limiter=juso_limiter,
+                epost_limiter=epost_limiter,
+            )
+
+        outcomes: dict[tuple[str, str], VerifyOutcome] = {}
+        if workers > 1 and len(to_verify) > 1:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {executor.submit(verify_one, key): key for key in to_verify}
+                try:
+                    for future in as_completed(futures):
+                        outcomes[futures[future]] = future.result()
+                except BaseException:
+                    # 전 provider 오류(RuntimeError) 등이 나면 남은 작업을 취소하고
+                    # 그대로 전파해 "키가 죽었는데 전량 검색주소없음" 사고를 막는다.
+                    for pending in futures:
+                        pending.cancel()
+                    raise
+        else:
+            outcomes = {key: verify_one(key) for key in to_verify}
+
+        # history 기록·판정 변경 감지는 메인 스레드에서 수행한다
+        # (sqlite3 기본 연결은 생성 스레드 전용이므로 이 구조가 락 없이 안전).
+        for cache_key in to_verify:
+            verification, verify_detail, correction = outcomes[cache_key]
+            if history is not None:
+                previous = history.latest(*cache_key)
+                history.record(cache_key[0], cache_key[1], verification, verify_detail)
+                if previous is not None and previous.verdict != verification:
+                    # 행정구역 개편·건물 멸실 등의 신호: 사람이 봐야 한다.
+                    verify_detail += f"; ⚠ 판정 변경: {previous.checked_at[:10]} {previous.verdict} → {verification}"
+                    stats["verdict_changed"] += 1
+            verify_cache[cache_key] = (verification, verify_detail, correction)
+
+    # 2패스 (메인 스레드): 결과를 셀에 기록하고 stats/교정 후보를 집계한다.
+    if status_idx:
+        for row, status, verify_detail in local_rows:
+            ws.cell(row=row, column=status_idx).value = status
+            if detail_idx:
+                ws.cell(row=row, column=detail_idx).value = verify_detail
+        for row, cache_key in verify_rows:
+            verification, verify_detail, correction = verify_cache[cache_key]
+            if correction is not None:
+                key = (correction["original"], correction["working"])
+                entry = corrections.setdefault(key, {**correction, "rows": []})
+                entry["rows"].append(row)
             status = ""
-            verify_detail = ""
-            if normalized.kind == "empty":
-                # 원주소가 비어 있는 행(서식만 남은 말미 행 포함)은 검토 대상이
-                # 아니므로 상태를 비워 둬 후단 자동화가 불량 주소와 혼동하지 않게 한다.
-                pass
-            elif not normalized.searchable:
+            if verification == "verified":
+                stats["verified"] += 1
+            elif verification == "ambiguous":
+                status = STATUS_AMBIGUOUS
+                stats["ambiguous"] += 1
+            else:
                 status = STATUS_NOT_FOUND
-                verify_detail = LOCAL_STATUS_KO.get(
-                    normalized.status, normalized.status
-                )
                 stats["missing"] += 1
-            elif admin_dict is not None and (
-                dict_reason := _admin_combo_missing(
-                    normalized.query, normalized.kind, admin_dict
-                )
-            ):
-                # 법정동 사전 오프라인 검증: API 호출 전에 실존하지 않는 행정구역을 거른다.
-                status = STATUS_NOT_FOUND
-                verify_detail = dict_reason
-                stats["missing"] += 1
-            elif mark_missing and (juso is not None or epost is not None):
-                verification: str
-                cache_key = (normalized.query, normalized.kind)
-                cached = verify_cache.get(cache_key)
-                if cached is None:
-                    fresh = (
-                        history.fresh(normalized.query, normalized.kind)
-                        if history
-                        else None
-                    )
-                    if fresh is not None:
-                        # 최근 검증 이력 재사용: API 호출 생략
-                        cached = (
-                            fresh.verdict,
-                            f"{fresh.detail} (이력 재사용 {fresh.checked_at[:10]})",
-                            None,
-                        )
-                        stats["history_reused"] += 1
-                    else:
-                        verification, verify_detail, correction = _verify(
-                            normalized.query, normalized.kind, juso, epost
-                        )
-                        if history is not None:
-                            previous = history.latest(normalized.query, normalized.kind)
-                            history.record(
-                                normalized.query,
-                                normalized.kind,
-                                verification,
-                                verify_detail,
-                            )
-                            if (
-                                previous is not None
-                                and previous.verdict != verification
-                            ):
-                                # 행정구역 개편·건물 멸실 등의 신호: 사람이 봐야 한다.
-                                verify_detail += f"; ⚠ 판정 변경: {previous.checked_at[:10]} {previous.verdict} → {verification}"
-                                stats["verdict_changed"] += 1
-                        cached = (verification, verify_detail, correction)
-                    verify_cache[cache_key] = cached
-                verification, verify_detail, correction = cached
-                if correction is not None:
-                    key = (correction["original"], correction["working"])
-                    entry = corrections.setdefault(key, {**correction, "rows": []})
-                    entry["rows"].append(row)
-                if verification == "verified":
-                    stats["verified"] += 1
-                elif verification == "ambiguous":
-                    status = STATUS_AMBIGUOUS
-                    stats["ambiguous"] += 1
-                else:
-                    status = STATUS_NOT_FOUND
-                    stats["missing"] += 1
             ws.cell(row=row, column=status_idx).value = status
             if detail_idx:
                 ws.cell(row=row, column=detail_idx).value = verify_detail
@@ -306,8 +368,14 @@ def _verify(
     kind: str,
     juso: JusoClient | None,
     epost: KoreaPostRoadNameClient | None,
+    *,
+    juso_limiter: RateLimiter | None = None,
+    epost_limiter: RateLimiter | None = None,
 ) -> tuple[Literal["verified", "ambiguous", "missing"], str, dict[str, str] | None]:
     """(판정, 사람이 읽을 검증 상세, 교정 후보) 반환.
+
+    입력 → 출력만 있는 순수 계산이라 그대로 병렬화 단위가 된다. 호출 페이싱은
+    provider별 공용 RateLimiter가 맡는다 (직렬·병렬 모두 같은 초당 상한).
 
     Juso는 상세 포함 검색이 0건이면 골격(시도~지번/건물번호)으로 한 번 더 검색한다.
     상세 표기('제비동 제101호' 등) 때문에 멀쩡한 주소가 불량 처리되는 것을 막고,
@@ -327,6 +395,8 @@ def _verify(
         if base and base != query:
             juso_queries.append(("골격", base))
         for label, juso_query in juso_queries:
+            if juso_limiter is not None:
+                juso_limiter.wait()
             try:
                 result = juso.search(juso_query, count=5)
             except Exception as exc:
@@ -338,7 +408,6 @@ def _verify(
                     {"errorCode": "transport_error", "errorMessage": str(exc)},
                     "",
                 )
-            time.sleep(API_CALL_INTERVAL)
             if result.has_error:
                 notes.append(f"JUSO[{label}] 오류")
                 break
@@ -359,11 +428,12 @@ def _verify(
         # 사람이 보완할 수 있게 제안만 남긴다. 주소를 자동으로 바꾸지는 않는다.
         if not result.has_error and result.total_count == 0 and kind == "lot":
             for variant in lot_variants(base or query)[:3]:
+                if juso_limiter is not None:
+                    juso_limiter.wait()
                 try:
                     variant_result = juso.search(variant, count=5)
                 except Exception:
                     break
-                time.sleep(API_CALL_INTERVAL)
                 if not variant_result.has_error and variant_result.total_count == 1:
                     road = variant_result.first.get("roadAddr") or ""
                     zip_no = variant_result.first.get("zipNo") or ""
@@ -387,6 +457,8 @@ def _verify(
         if compact_query and compact_query not in epost_queries:
             epost_queries.append(compact_query)
         for epost_query in epost_queries:
+            if epost_limiter is not None:
+                epost_limiter.wait()
             try:
                 result = epost.search(epost_query, search_se=search_se, count=5)
             except Exception as exc:
@@ -396,7 +468,6 @@ def _verify(
                     {"returnCode": "transport_error", "returnMessage": str(exc)},
                     "",
                 )
-            time.sleep(API_CALL_INTERVAL)
             results.append(result)
             if not result.has_error and result.total_count != 0:
                 break

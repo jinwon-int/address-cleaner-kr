@@ -72,6 +72,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help='추가 오타 교정 규칙 JSON 경로 (예: [["프루지오", "푸르지오"]])',
     )
+    p_excel.add_argument(
+        "--workers",
+        type=int,
+        default=8,
+        help="API 검증 병렬 워커 수 (기본 8, 1이면 직렬). 초당 호출은 자동으로 제한됩니다.",
+    )
 
     p_feedback = sub.add_parser(
         "feedback", help="파워쉘 처리결과 엑셀의 실패 행을 모아 재정제 리포트 생성"
@@ -120,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
                 corrections_path=Path(args.corrections_out)
                 if args.corrections_out
                 else None,
+                workers=args.workers,
             )
         except (RuntimeError, ValueError, OSError) as exc:
             print(f"error: {exc}", file=sys.stderr)

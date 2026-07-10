@@ -96,6 +96,12 @@ address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --
 
 지번주소가 골격 검색까지 0건이면 붙여 쓴 지번 변형(`야당동 5717` → `57-17`)으로 후보를 찾아 검증상세에 제안만 남깁니다. 주소를 자동으로 바꾸지는 않습니다.
 
+`--mark-missing` 검증은 기본 8개 워커로 병렬 처리하되, 등기 모드와 같은 전역 레이트리미터가 provider별 초당 호출 수를 자동으로 제한해 API 차단을 피합니다. 같은 원주소가 반복되는 행은 병렬 제출 전에 하나로 합쳐지고, 검증 이력(`--history`)에 있는 주소는 API를 부르지 않습니다. 직렬로 돌리려면 `--workers 1`을 줍니다.
+
+```bash
+address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --status-col M --mark-missing --workers 8
+```
+
 검증 이력과 교정 후보까지 켠 권장 배치 실행:
 
 ```bash
