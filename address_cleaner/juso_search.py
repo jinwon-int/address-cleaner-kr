@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,41 @@ def set_rate_limiter(limiter: RateLimiter | None) -> None:
     _RATE_LIMITER = limiter
 
 
+# JSON 캐시 만료 일수. 검증 이력(history)의 기본 14일과 같은 기준으로,
+# "지난달엔 1건이었는데 지금은 아닐 수 있다"는 판정 변화 감지 취지를 캐시에도 적용한다.
+DEFAULT_CACHE_MAX_AGE_DAYS = 14
+_CACHE_MAX_AGE_DAYS: int = DEFAULT_CACHE_MAX_AGE_DAYS
+
+
+def set_cache_max_age_days(days: int) -> None:
+    """캐시 만료 일수 설정. 0이면 만료 없음(과거 동작)."""
+    global _CACHE_MAX_AGE_DAYS
+    _CACHE_MAX_AGE_DAYS = days
+
+
+def stamp_cache_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    """엔트리에 cached_at을 찍는다 (v2 포맷)."""
+    entry["cached_at"] = datetime.now().isoformat(timespec="seconds")
+    return entry
+
+
+def cache_entry_fresh(entry: Any) -> bool:
+    """엔트리가 만료 기한 안인지. cached_at 없는 구버전 포맷은 만료로 간주한다
+    (일회성 콜드 실행 비용만 발생, 마이그레이션 코드 불필요)."""
+    if _CACHE_MAX_AGE_DAYS <= 0:
+        return True
+    if not isinstance(entry, dict):
+        return False
+    cached_at = entry.get("cached_at")
+    if not cached_at:
+        return False
+    try:
+        checked = datetime.fromisoformat(str(cached_at))
+    except ValueError:
+        return False
+    return checked >= datetime.now() - timedelta(days=_CACHE_MAX_AGE_DAYS)
+
+
 def load_cache(cache_file: Path) -> dict[str, Any]:
     if not cache_file.exists():
         return {}
@@ -67,9 +103,13 @@ def load_cache(cache_file: Path) -> dict[str, Any]:
 
 def save_cache(cache_file: Path, cache: dict[str, Any]) -> None:
     # 병렬 워커가 cache를 쓰는 중에 직렬화하면 "dict changed size" 오류가 나므로
-    # 캐시 락을 잡은 채로 스냅샷을 만든다.
+    # 캐시 락을 잡은 채로 스냅샷을 만든다. 만료 엔트리는 걸러 파일 크기 증가를 막는다.
     with _CACHE_LOCK:
-        payload = json.dumps(cache, ensure_ascii=False, indent=2)
+        payload = json.dumps(
+            {k: v for k, v in cache.items() if cache_entry_fresh(v)},
+            ensure_ascii=False,
+            indent=2,
+        )
     tmp = cache_file.with_suffix(cache_file.suffix + ".tmp")
     tmp.write_text(payload, encoding="utf-8")
     tmp.replace(cache_file)
@@ -92,8 +132,10 @@ def juso_query(
         return {"keyword": "", "total": 0, "rows": []}
     cache_key = f"{'raw' if preserve_commas else 'clean'}:{count}:{keyword}"
     with _CACHE_LOCK:
-        if cache_key in cache:
-            return cache[cache_key]
+        cached = cache.get(cache_key)
+        # 만료된(또는 cached_at 없는 구버전) 엔트리는 미스로 취급해 재호출·덮어쓰기.
+        if cached is not None and cache_entry_fresh(cached):
+            return cached
     limiter = _RATE_LIMITER
     if limiter is not None:
         limiter.wait()
@@ -107,6 +149,7 @@ def juso_query(
         }
     else:
         res = {"keyword": keyword, "total": data["total"], "rows": data["rows"][:count]}
+    stamp_cache_entry(res)
     with _CACHE_LOCK:
         cache[cache_key] = res
     if limiter is None:

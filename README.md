@@ -170,6 +170,8 @@ registry-address-refine input.xlsx -o out
 
 Juso 1차·2차 검색은 기본 8개 워커로 병렬 처리하되, 전역 레이트리미터가 초당 호출 수를 자동으로 제한해 API 차단을 피합니다. 캐시가 채워진 재실행은 거의 호출이 없고, 콜드 실행의 대기시간만 줄어듭니다. 직렬로 돌리려면 `--workers 1`을 줍니다.
 
+JSON 캐시는 검증 이력과 같은 기준으로 기본 14일이 지나면 만료되어 다시 검색합니다(행정구역 개편·건물 멸실로 검색 결과가 달라질 수 있으므로). 만료 엔트리는 저장 시 파일에서도 정리됩니다. 만료 주기는 `--cache-max-age-days`로 바꾸고, `0`이면 만료 없이 이전 동작을 유지합니다.
+
 ```bash
 address-cleaner registry input.xlsx -o out --workers 8
 ```
@@ -202,7 +204,12 @@ address-cleaner registry input.xlsx -o out --workers 8
 - API 키는 `.env` 또는 쉘 환경변수로만 둡니다.
 - 원본 legacy 스크립트에 있던 하드코딩 키는 레포에 커밋하지 않습니다.
 - `.env`, 로그, Excel 산출물은 기본적으로 Git 추적에서 제외합니다.
-- 우정사업본부(ePost) 엔드포인트는 현재 `http://`입니다. 운영망에서 `https://openapi.epost.go.kr` 응답이 확인되면 `clients.py`의 엔드포인트를 https로 전환하세요.
+- 우정사업본부(ePost) 엔드포인트는 현재 기본값이 `http://`라 `ServiceKey`가 평문으로 전송됩니다. `EPOST_ENDPOINT` 환경변수로 엔드포인트를 바꿀 수 있으므로, 운영망에서 아래처럼 https 응답을 먼저 확인한 뒤 `.env`에 고정하세요. 확인되면 `clients.py`의 `EPOST_DEFAULT_ENDPOINT` 기본값도 https로 교체합니다. (2026-07-10 개발 환경에서는 프록시가 해당 도메인을 차단해 https 전환 여부를 검증하지 못했습니다 — 운영망 재확인 필요)
+
+  ```bash
+  EPOST_ENDPOINT='https://openapi.epost.go.kr/postal/retrieveNewAdressAreaCdService/retrieveNewAdressAreaCdService/getNewAddressListAreaCd' \
+    address-cleaner probe epost "경기도 파주시 야당동 57-17"
+  ```
 
 ## Public source visibility boundary
 

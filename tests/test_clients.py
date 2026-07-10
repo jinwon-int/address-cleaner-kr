@@ -228,6 +228,35 @@ def test_juso_client_returns_first_row(monkeypatch):
 # --- KoreaPostRoadNameClient ---
 
 
+def test_epost_endpoint_defaults_to_http(monkeypatch):
+    monkeypatch.delenv("EPOST_ENDPOINT", raising=False)
+
+    client = KoreaPostRoadNameClient(key="k")
+
+    assert client.endpoint == clients.EPOST_DEFAULT_ENDPOINT
+    assert client.endpoint.startswith("http://openapi.epost.go.kr")
+
+
+def test_epost_endpoint_env_override(monkeypatch):
+    override = (
+        "https://openapi.epost.go.kr/postal/retrieveNewAdressAreaCdService/"
+        "retrieveNewAdressAreaCdService/getNewAddressListAreaCd"
+    )
+    monkeypatch.setenv("EPOST_ENDPOINT", override)
+    seen = {}
+
+    def capture_get(url, params=None, timeout=None):
+        seen["url"] = url
+        return _Response(text=EPOST_OK_XML)
+
+    monkeypatch.setattr(clients.requests, "get", capture_get)
+
+    result = KoreaPostRoadNameClient(key="k").search("하우3길 22")
+
+    assert seen["url"] == override
+    assert result.total_count == 1
+
+
 def test_epost_requires_key(monkeypatch):
     for name in clients.EPOST_KEY_ENV_VARS:
         monkeypatch.delenv(name, raising=False)

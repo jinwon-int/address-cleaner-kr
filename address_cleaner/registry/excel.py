@@ -14,6 +14,7 @@ import requests
 
 from .juso import (
     RateLimiter,
+    cache_entry_fresh,
     cache_lock,
     candidate_id,
     first_pass_status,
@@ -23,6 +24,7 @@ from .juso import (
     save_cache,
     score_candidate,
     set_rate_limiter,
+    stamp_cache_entry,
 )
 from .normalize import (
     building_name,
@@ -165,7 +167,9 @@ def refine(
         item_key = f"first:{addr}"
         with cache_lock():
             cached = cache.get(item_key)
-        if cached is not None:
+        # 만료된(또는 cached_at 없는 구버전) 복합 엔트리는 다시 계산한다.
+        # 하위 juso_query 캐시가 신선하면 재계산 비용은 API 호출 없이 끝난다.
+        if cached is not None and cache_entry_fresh(cached):
             return cached
         full = juso_query(session, key, addr, cache, count=5, preserve_commas=True)
         stripped = strip_detail(addr)
@@ -183,6 +187,7 @@ def refine(
             "status": status,
             "best": best,
         }
+        stamp_cache_entry(item)
         with cache_lock():
             cache[item_key] = item
         return item

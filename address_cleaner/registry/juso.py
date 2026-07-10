@@ -11,12 +11,16 @@ from typing import Any
 
 from ..clients import JUSO_ENDPOINT
 from ..juso_search import (  # noqa: F401
+    DEFAULT_CACHE_MAX_AGE_DAYS,
     RateLimiter,
+    cache_entry_fresh,
     cache_lock,
     juso_query,
     load_cache,
     save_cache,
+    set_cache_max_age_days,
     set_rate_limiter,
+    stamp_cache_entry,
 )
 from .normalize import (
     building_tokens,

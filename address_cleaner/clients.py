@@ -121,18 +121,24 @@ class JusoClient:
         )
 
 
-class KoreaPostRoadNameClient:
-    endpoint = (
-        "http://openapi.epost.go.kr:80/postal/retrieveNewAdressAreaCdService/"
-        "retrieveNewAdressAreaCdService/getNewAddressListAreaCd"
-    )
+# 우정사업본부 엔드포인트는 아직 http가 기본이다 (ServiceKey 평문 전송 이슈,
+# README 보안 원칙 참고). 운영망에서 https 응답이 확인되면 EPOST_ENDPOINT
+# 환경변수로 먼저 전환해 검증한 뒤 이 기본값을 교체한다.
+EPOST_DEFAULT_ENDPOINT = (
+    "http://openapi.epost.go.kr:80/postal/retrieveNewAdressAreaCdService/"
+    "retrieveNewAdressAreaCdService/getNewAddressListAreaCd"
+)
 
+
+class KoreaPostRoadNameClient:
     def __init__(
         self,
         key: str | None = None,
         timeout: float = 5.0,
         session: requests.Session | None = None,
     ):
+        # 클래스 속성이 아니라 생성 시점에 읽어 import 시점 고정을 피한다.
+        self.endpoint = os.getenv("EPOST_ENDPOINT") or EPOST_DEFAULT_ENDPOINT
         self.key = (
             next(
                 (os.getenv(name) for name in EPOST_KEY_ENV_VARS if os.getenv(name)),
