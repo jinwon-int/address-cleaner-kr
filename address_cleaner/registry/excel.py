@@ -209,6 +209,7 @@ def refine(
     for r in range(2, ws.max_row + 1):
         addr = source_addr(r)
         item = first_items.get(addr)
+        values: list[Any]
         if not item:
             values = ["최종주소_공백", "", 0, "", "", "", "", ""]
         else:
@@ -310,12 +311,12 @@ def refine(
     set_rate_limiter(limiter)
     try:
         with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {
+            second_futures = {
                 executor.submit(second_pass, raw, final, roadc, jibunc): r
                 for (r, raw, final, roadc, jibunc) in second_inputs
             }
-            for done, future in enumerate(as_completed(futures), 1):
-                second_values[futures[future]] = future.result()
+            for done, second_future in enumerate(as_completed(second_futures), 1):
+                second_values[second_futures[second_future]] = second_future.result()
                 if done % 50 == 0:
                     save_cache(cache_file, cache)
                     if verbose:

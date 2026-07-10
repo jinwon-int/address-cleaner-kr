@@ -142,8 +142,8 @@ def main(argv: list[str] | None = None) -> int:
             print(text)
         return 0
     if args.command == "probe":
-        client = JusoClient() if args.provider == "juso" else KoreaPostRoadNameClient()
         if args.provider == "epost":
+            epost_client = KoreaPostRoadNameClient()
             normalized = normalize_for_search(args.query)
             search_se = "road" if normalized.kind == "road" else "dong"
             queries = [normalized.query or args.query]
@@ -152,15 +152,15 @@ def main(argv: list[str] | None = None) -> int:
             )
             if compact_query and compact_query not in queries:
                 queries.append(compact_query)
-            result = None
             query_used = queries[0]
-            for query in queries:
-                result = client.search(query, search_se=search_se)
-                query_used = query
+            result = epost_client.search(query_used, search_se=search_se)
+            for query in queries[1:]:
                 if not result.has_error and result.total_count != 0:
                     break
+                result = epost_client.search(query, search_se=search_se)
+                query_used = query
         else:
-            result = client.search(args.query)
+            result = JusoClient().search(args.query)
             query_used = args.query
         print(
             json.dumps(

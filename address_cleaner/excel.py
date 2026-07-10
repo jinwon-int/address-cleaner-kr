@@ -131,6 +131,7 @@ def process_workbook(
                 verify_detail = dict_reason
                 stats["missing"] += 1
             elif mark_missing and (juso is not None or epost is not None):
+                verification: str
                 cache_key = (normalized.query, normalized.kind)
                 cached = verify_cache.get(cache_key)
                 if cached is None:

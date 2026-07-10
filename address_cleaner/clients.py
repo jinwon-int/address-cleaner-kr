@@ -140,8 +140,8 @@ class KoreaPostRoadNameClient:
             "ServiceKey": self.key,
             "searchSe": search_se,
             "srchwrd": keyword,
-            "countPerPage": count,
-            "currentPage": 1,
+            "countPerPage": str(count),
+            "currentPage": "1",
         }
         # Juso 쪽 request_juso와 같은 기준으로 일시적 네트워크 오류/깨진 응답을 재시도한다.
         for attempt in range(retries + 1):
