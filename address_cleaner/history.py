@@ -55,10 +55,23 @@ class VerifyHistory:
             return None
         return entry
 
-    def record(self, query: str, kind: str, verdict: str, detail: str, checked_at: str | None = None) -> None:
+    def record(
+        self,
+        query: str,
+        kind: str,
+        verdict: str,
+        detail: str,
+        checked_at: str | None = None,
+    ) -> None:
         self.conn.execute(
             "INSERT INTO verify_history VALUES (?, ?, ?, ?, ?)",
-            (query, kind, verdict, detail, checked_at or datetime.now().isoformat(timespec="seconds")),
+            (
+                query,
+                kind,
+                verdict,
+                detail,
+                checked_at or datetime.now().isoformat(timespec="seconds"),
+            ),
         )
         self.conn.commit()
 

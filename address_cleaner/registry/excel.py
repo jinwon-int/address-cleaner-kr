@@ -43,24 +43,57 @@ DEFAULT_WORKERS = 8
 MAX_REQ_PER_SEC = 10.0
 
 JUSO_COLUMNS = [
-    "JUSO_판정", "JUSO_검색어", "JUSO_총건수", "JUSO_도로명주소_1", "JUSO_지번주소_1",
-    "JUSO_우편번호_1", "JUSO_시군구코드_1", "JUSO_결과상위5",
+    "JUSO_판정",
+    "JUSO_검색어",
+    "JUSO_총건수",
+    "JUSO_도로명주소_1",
+    "JUSO_지번주소_1",
+    "JUSO_우편번호_1",
+    "JUSO_시군구코드_1",
+    "JUSO_결과상위5",
 ]
 JUSO2_COLUMNS = [
-    "JUSO_2차판정", "JUSO_2차점수", "JUSO_2차점수차", "JUSO_추천도로명주소", "JUSO_추천지번주소",
-    "JUSO_추천우편번호", "JUSO_추천시군구코드", "JUSO_추천근거", "JUSO_2차검색어", "JUSO_2차후보상위5",
+    "JUSO_2차판정",
+    "JUSO_2차점수",
+    "JUSO_2차점수차",
+    "JUSO_추천도로명주소",
+    "JUSO_추천지번주소",
+    "JUSO_추천우편번호",
+    "JUSO_추천시군구코드",
+    "JUSO_추천근거",
+    "JUSO_2차검색어",
+    "JUSO_2차후보상위5",
 ]
 REGISTRY_COLUMNS = [
-    "등기_부동산구분", "등기_시도", "등기_시군구", "등기_법정동", "등기_지번", "등기_지번주소",
-    "등기_건물명_원문추정", "등기_동", "등기_층", "등기_호", "등기_검색문구", "등기_조회전략",
-    "등기_검토등급", "등기_검토사유",
+    "등기_부동산구분",
+    "등기_시도",
+    "등기_시군구",
+    "등기_법정동",
+    "등기_지번",
+    "등기_지번주소",
+    "등기_건물명_원문추정",
+    "등기_동",
+    "등기_층",
+    "등기_호",
+    "등기_검색문구",
+    "등기_조회전략",
+    "등기_검토등급",
+    "등기_검토사유",
 ]
-WHOLE_COLUMNS = ["등기소_전체검색어_동호포함", "등기소_전체검색_보조검색어", "등기소_전체검색_상태"]
+WHOLE_COLUMNS = [
+    "등기소_전체검색어_동호포함",
+    "등기소_전체검색_보조검색어",
+    "등기소_전체검색_상태",
+]
 FINAL_COLUMNS = ["최종 검색용 주소", "주소검토결과"]
 
 
 def ensure_columns(ws: Any, names: list[str]) -> dict[str, int]:
-    headers = {ws.cell(1, c).value: c for c in range(1, ws.max_column + 1) if ws.cell(1, c).value}
+    headers = {
+        ws.cell(1, c).value: c
+        for c in range(1, ws.max_column + 1)
+        if ws.cell(1, c).value
+    }
     for name in names:
         if name not in headers:
             col = ws.max_column + 1
@@ -74,7 +107,9 @@ def get_cell(ws: Any, row: int, headers: dict[str, int], name: str) -> Any:
     return ws.cell(row, col).value if col else ""
 
 
-def set_row_values(ws: Any, row: int, headers: dict[str, int], names: list[str], values: list[Any]) -> None:
+def set_row_values(
+    ws: Any, row: int, headers: dict[str, int], names: list[str], values: list[Any]
+) -> None:
     for name, value in zip(names, values):
         ws.cell(row, headers[name]).value = value
 
@@ -100,7 +135,10 @@ def refine(
 
     wb = openpyxl.load_workbook(input_file)
     ws = wb["Sheet1"] if "Sheet1" in wb.sheetnames else wb.active
-    headers = ensure_columns(ws, JUSO_COLUMNS + JUSO2_COLUMNS + REGISTRY_COLUMNS + WHOLE_COLUMNS + FINAL_COLUMNS)
+    headers = ensure_columns(
+        ws,
+        JUSO_COLUMNS + JUSO2_COLUMNS + REGISTRY_COLUMNS + WHOLE_COLUMNS + FINAL_COLUMNS,
+    )
 
     required = ["대상 임대차계약 주소"]
     missing = [name for name in required if name not in headers]
@@ -110,7 +148,10 @@ def refine(
     def source_addr(row: int) -> str:
         # Prefer a human-reviewed final address when present; otherwise use the raw lease address.
         # This lets the same refiner work on both already-refined workbooks and raw 통합 sheets.
-        return norm(get_cell(ws, row, headers, "최종주소") or get_cell(ws, row, headers, "대상 임대차계약 주소"))
+        return norm(
+            get_cell(ws, row, headers, "최종주소")
+            or get_cell(ws, row, headers, "대상 임대차계약 주소")
+        )
 
     session = requests.Session()
     limiter = RateLimiter(MAX_REQ_PER_SEC) if workers > 1 else None
@@ -134,7 +175,14 @@ def refine(
             else None
         )
         status, best = first_pass_status(full, normalized)
-        item = {"address": addr, "normalizedKeyword": stripped, "full": full, "normalized": normalized, "status": status, "best": best}
+        item = {
+            "address": addr,
+            "normalizedKeyword": stripped,
+            "full": full,
+            "normalized": normalized,
+            "status": status,
+            "best": best,
+        }
         with cache_lock():
             cache[item_key] = item
         return item
@@ -142,7 +190,9 @@ def refine(
     set_rate_limiter(limiter)
     try:
         with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {executor.submit(first_pass, addr): addr for addr in unique_addresses}
+            futures = {
+                executor.submit(first_pass, addr): addr for addr in unique_addresses
+            }
             for done, future in enumerate(as_completed(futures), 1):
                 first_items[futures[future]] = future.result()
                 if done % 50 == 0:
@@ -166,9 +216,17 @@ def refine(
             rows = best.get("rows") or []
             first = rows[0] if rows else {}
             values = [
-                item["status"], best.get("keyword", ""), best.get("total", 0),
-                first.get("roadAddr", ""), first.get("jibunAddr", ""), first.get("zipNo", ""), first.get("admCd", ""),
-                "\n".join(f"{i+1}. {x.get('roadAddr','')} / {x.get('jibunAddr','')}" for i, x in enumerate(rows[:5])),
+                item["status"],
+                best.get("keyword", ""),
+                best.get("total", 0),
+                first.get("roadAddr", ""),
+                first.get("jibunAddr", ""),
+                first.get("zipNo", ""),
+                first.get("admCd", ""),
+                "\n".join(
+                    f"{i + 1}. {x.get('roadAddr', '')} / {x.get('jibunAddr', '')}"
+                    for i, x in enumerate(rows[:5])
+                ),
             ]
             if item["status"] == "검색불가" or item["status"].startswith("다중검출"):
                 target_rows.append(r)
@@ -197,14 +255,29 @@ def refine(
             res = juso_query(session, key, q, cache, count=30)
             for row in res.get("rows") or []:
                 cid = candidate_id(row)
-                candidates.setdefault(cid, {"row": row, "queries": []})["queries"].append({"keyword": res["keyword"], "total": res["total"]})
+                candidates.setdefault(cid, {"row": row, "queries": []})[
+                    "queries"
+                ].append({"keyword": res["keyword"], "total": res["total"]})
         scored: list[tuple[int, str, dict[str, Any], list[str]]] = []
         for cid, obj in candidates.items():
-            score, reasons = score_candidate(obj["row"], raw, final, roadc, jibunc, obj["queries"])
+            score, reasons = score_candidate(
+                obj["row"], raw, final, roadc, jibunc, obj["queries"]
+            )
             scored.append((score, cid, obj, reasons))
         scored.sort(key=lambda x: x[0], reverse=True)
         if not scored:
-            return ["수동검토", 0, 0, "", "", "", "", "후보없음", "\n".join(queries), ""]
+            return [
+                "수동검토",
+                0,
+                0,
+                "",
+                "",
+                "",
+                "",
+                "후보없음",
+                "\n".join(queries),
+                "",
+            ]
         score, _cid, obj, reasons = scored[0]
         second = scored[1][0] if len(scored) > 1 else 0
         margin = score - second
@@ -218,16 +291,29 @@ def refine(
         else:
             decision = "수동검토"
         return [
-            decision, score, margin, row.get("roadAddr", ""), row.get("jibunAddr", ""), row.get("zipNo", ""), row.get("admCd", ""),
-            "; ".join(reasons), "\n".join(f"{x['keyword']} ({x['total']})" for x in obj["queries"][:6]),
-            "\n".join(f"{i+1}. [{s}] {o['row'].get('roadAddr','')} / {o['row'].get('jibunAddr','')}" for i, (s, _, o, _) in enumerate(scored[:5])),
+            decision,
+            score,
+            margin,
+            row.get("roadAddr", ""),
+            row.get("jibunAddr", ""),
+            row.get("zipNo", ""),
+            row.get("admCd", ""),
+            "; ".join(reasons),
+            "\n".join(f"{x['keyword']} ({x['total']})" for x in obj["queries"][:6]),
+            "\n".join(
+                f"{i + 1}. [{s}] {o['row'].get('roadAddr', '')} / {o['row'].get('jibunAddr', '')}"
+                for i, (s, _, o, _) in enumerate(scored[:5])
+            ),
         ]
 
     second_values: dict[int, list[Any]] = {}
     set_rate_limiter(limiter)
     try:
         with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {executor.submit(second_pass, raw, final, roadc, jibunc): r for (r, raw, final, roadc, jibunc) in second_inputs}
+            futures = {
+                executor.submit(second_pass, raw, final, roadc, jibunc): r
+                for (r, raw, final, roadc, jibunc) in second_inputs
+            }
             for done, future in enumerate(as_completed(futures), 1):
                 second_values[futures[future]] = future.result()
                 if done % 50 == 0:
@@ -254,17 +340,32 @@ def refine(
         juso2 = norm(get_cell(ws, r, headers, "JUSO_2차판정"))
         rec_jibun = get_cell(ws, r, headers, "JUSO_추천지번주소")
         base_jibun = get_cell(ws, r, headers, "JUSO_지번주소_1")
-        rec_road = get_cell(ws, r, headers, "JUSO_추천도로명주소") or get_cell(ws, r, headers, "JUSO_도로명주소_1")
+        rec_road = get_cell(ws, r, headers, "JUSO_추천도로명주소") or get_cell(
+            ws, r, headers, "JUSO_도로명주소_1"
+        )
         lot = parse_lot_addr(rec_jibun, base_jibun, raw, final)
         unit = unit_extract(raw, final, lot["addr"])
         bname = building_name(raw, lot["addr"], rec_road, final)
         prop = "집합건물" if unit["ho"] else "부동산구분 확인필요"
-        phrase = norm(" ".join(x for x in [lot["addr"], bname, suffix_dong(unit["bld_dong"]), suffix_ho(unit["ho"])] if x))
+        phrase = norm(
+            " ".join(
+                x
+                for x in [
+                    lot["addr"],
+                    bname,
+                    suffix_dong(unit["bld_dong"]),
+                    suffix_ho(unit["ho"]),
+                ]
+                if x
+            )
+        )
         reasons: list[str] = []
         if juso1 == "검색불가" or juso1.startswith("다중검출"):
             reasons.append(f"Juso 1차 {juso1}")
         if original_is_under_specified(raw):
-            reasons.append("원문 식별정보 부족: 지번/도로명건물번호/건물명 없이 법정동+호수만 있음")
+            reasons.append(
+                "원문 식별정보 부족: 지번/도로명건물번호/건물명 없이 법정동+호수만 있음"
+            )
         if not lot["addr"]:
             reasons.append("지번주소 없음")
         if not unit["ho"]:
@@ -282,7 +383,11 @@ def refine(
         if not reasons:
             grade = "바로조회가능"
             strategy = "인터넷등기소 전체검색: 최종 검색용 주소 그대로 검색"
-        elif "지번주소 없음" in reasons or "호실 없음" in reasons or any(r.startswith("원문 식별정보 부족") for r in reasons):
+        elif (
+            "지번주소 없음" in reasons
+            or "호실 없음" in reasons
+            or any(r.startswith("원문 식별정보 부족") for r in reasons)
+        ):
             grade = "보완필요"
             strategy = "원문·경매기록·건축물대장 등으로 지번/호실 보완 필요"
         else:
@@ -290,9 +395,20 @@ def refine(
             strategy = "전체검색어로 검색하되 결과의 건물명/동/호를 원문과 대조 후 발급"
 
         registry_values = [
-            prop, lot["sido"], norm(" ".join(x for x in [lot["city"], lot["sigungu"]] if x)),
-            norm(" ".join(x for x in [lot.get("eupmyeon", ""), lot["dong"]] if x)), lot["lot"], lot["addr"],
-            bname, unit["bld_dong"], unit["floor"], unit["ho"], phrase, strategy, grade, "; ".join(reasons),
+            prop,
+            lot["sido"],
+            norm(" ".join(x for x in [lot["city"], lot["sigungu"]] if x)),
+            norm(" ".join(x for x in [lot.get("eupmyeon", ""), lot["dong"]] if x)),
+            lot["lot"],
+            lot["addr"],
+            bname,
+            unit["bld_dong"],
+            unit["floor"],
+            unit["ho"],
+            phrase,
+            strategy,
+            grade,
+            "; ".join(reasons),
         ]
         set_row_values(ws, r, headers, REGISTRY_COLUMNS, registry_values)
 
@@ -302,39 +418,75 @@ def refine(
         if lot["addr"] and bname:
             aux.append(norm(f"{lot['addr']} {bname}"))
         aux = [x for i, x in enumerate(aux) if x and x not in aux[:i]]
-        result = "보완필요" if grade == "보완필요" or not (lot["addr"] and unit["ho"]) else ("검토후조회" if grade == "검토후조회" else "바로조회가능")
+        result = (
+            "보완필요"
+            if grade == "보완필요" or not (lot["addr"] and unit["ho"])
+            else ("검토후조회" if grade == "검토후조회" else "바로조회가능")
+        )
         whole_status = "보완필요" if result == "보완필요" else "전체검색가능"
         final_phrase = "" if result == "보완필요" else phrase
         final_aux = "" if result == "보완필요" else " / ".join(aux)
-        set_row_values(ws, r, headers, WHOLE_COLUMNS, [final_phrase, final_aux, whole_status])
+        set_row_values(
+            ws, r, headers, WHOLE_COLUMNS, [final_phrase, final_aux, whole_status]
+        )
         set_row_values(ws, r, headers, FINAL_COLUMNS, [final_phrase, result])
         final_counter[result] += 1
         for reason in reasons:
             reason_counter[reason] += 1
-        records.append((r, registry_values + [phrase, " / ".join(aux), whole_status, phrase, result]))
+        records.append(
+            (
+                r,
+                registry_values
+                + [phrase, " / ".join(aux), whole_status, phrase, result],
+            )
+        )
 
     # 검토용 시트.
     review_cols = [
-        "엑셀행", "원본행", "법무대리인", "대상 임대차계약 주소", "최종주소", "JUSO_판정", "JUSO_2차판정",
-        "최종 검색용 주소", "주소검토결과", "등기_검토사유", "등기소_전체검색_보조검색어",
+        "엑셀행",
+        "원본행",
+        "법무대리인",
+        "대상 임대차계약 주소",
+        "최종주소",
+        "JUSO_판정",
+        "JUSO_2차판정",
+        "최종 검색용 주소",
+        "주소검토결과",
+        "등기_검토사유",
+        "등기소_전체검색_보조검색어",
     ]
-    for sheet_name, wanted in [("등기소_바로조회가능", "바로조회가능"), ("등기소_검토필요", None)]:
+    for sheet_name, wanted in [
+        ("등기소_바로조회가능", "바로조회가능"),
+        ("등기소_검토필요", None),
+    ]:
         sh = add_or_replace_sheet(wb, sheet_name)
         sh.append(review_cols)
         for r in range(2, ws.max_row + 1):
             result = get_cell(ws, r, headers, "주소검토결과")
-            if (wanted and result != wanted) or (wanted is None and result == "바로조회가능"):
+            if (wanted and result != wanted) or (
+                wanted is None and result == "바로조회가능"
+            ):
                 continue
-            sh.append([
-                r, get_cell(ws, r, headers, "원본행"), get_cell(ws, r, headers, "법무대리인"),
-                get_cell(ws, r, headers, "대상 임대차계약 주소"), get_cell(ws, r, headers, "최종주소"),
-                get_cell(ws, r, headers, "JUSO_판정"), get_cell(ws, r, headers, "JUSO_2차판정"),
-                get_cell(ws, r, headers, "최종 검색용 주소"), result, get_cell(ws, r, headers, "등기_검토사유"),
-                get_cell(ws, r, headers, "등기소_전체검색_보조검색어"),
-            ])
+            sh.append(
+                [
+                    r,
+                    get_cell(ws, r, headers, "원본행"),
+                    get_cell(ws, r, headers, "법무대리인"),
+                    get_cell(ws, r, headers, "대상 임대차계약 주소"),
+                    get_cell(ws, r, headers, "최종주소"),
+                    get_cell(ws, r, headers, "JUSO_판정"),
+                    get_cell(ws, r, headers, "JUSO_2차판정"),
+                    get_cell(ws, r, headers, "최종 검색용 주소"),
+                    result,
+                    get_cell(ws, r, headers, "등기_검토사유"),
+                    get_cell(ws, r, headers, "등기소_전체검색_보조검색어"),
+                ]
+            )
         sh.freeze_panes = "A2"
         for col in sh.columns:
-            sh.column_dimensions[col[0].column_letter].width = min(70, max(10, max(len(str(c.value or "")) for c in col) + 2))
+            sh.column_dimensions[col[0].column_letter].width = min(
+                70, max(10, max(len(str(c.value or "")) for c in col) + 2)
+            )
 
     summary_sheet = add_or_replace_sheet(wb, "최종검색주소_요약")
     summary_sheet.append(["구분", "건수"])
@@ -344,10 +496,14 @@ def refine(
     summary_sheet.column_dimensions["A"].width = 20
     summary_sheet.column_dimensions["B"].width = 12
 
-    ws.column_dimensions[ws.cell(1, headers["최종 검색용 주소"]).column_letter].width = 70
+    ws.column_dimensions[
+        ws.cell(1, headers["최종 검색용 주소"]).column_letter
+    ].width = 70
     ws.column_dimensions[ws.cell(1, headers["주소검토결과"]).column_letter].width = 18
 
-    output_file = output_dir / f"{input_file.stem}_등기소전체검색용_최종검색주소추가.xlsx"
+    output_file = (
+        output_dir / f"{input_file.stem}_등기소전체검색용_최종검색주소추가.xlsx"
+    )
     wb.save(output_file)
     summary = {
         "input": str(input_file),
@@ -360,5 +516,7 @@ def refine(
         "reviewReasons": dict(reason_counter),
     }
     summary_path = output_dir / f"{input_file.stem}_summary.json"
-    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     return summary

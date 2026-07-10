@@ -12,6 +12,7 @@ from .clients import JusoClient, KoreaPostRoadNameClient, SearchResult
 from .history import VerifyHistory
 from .normalizer import base_for_search, compact_for_epost, normalize_for_search
 from .regions import AdminDict
+
 # 등기 모드의 검색어 빌딩블록을 일반 모드 검증에도 재사용한다.
 from .registry.normalize import district_key, lot_variants, parse_lot_addr
 
@@ -78,7 +79,9 @@ def process_workbook(
     if epost is not None and not epost.key:
         epost = None
     if mark_missing and provider != "none" and juso is None and epost is None:
-        raise RuntimeError("At least one API key is required when --mark-missing validates provider results")
+        raise RuntimeError(
+            "At least one API key is required when --mark-missing validates provider results"
+        )
 
     stats = {
         "total": 0,
@@ -114,9 +117,15 @@ def process_workbook(
                 pass
             elif not normalized.searchable:
                 status = STATUS_NOT_FOUND
-                verify_detail = LOCAL_STATUS_KO.get(normalized.status, normalized.status)
+                verify_detail = LOCAL_STATUS_KO.get(
+                    normalized.status, normalized.status
+                )
                 stats["missing"] += 1
-            elif admin_dict is not None and (dict_reason := _admin_combo_missing(normalized.query, normalized.kind, admin_dict)):
+            elif admin_dict is not None and (
+                dict_reason := _admin_combo_missing(
+                    normalized.query, normalized.kind, admin_dict
+                )
+            ):
                 # 법정동 사전 오프라인 검증: API 호출 전에 실존하지 않는 행정구역을 거른다.
                 status = STATUS_NOT_FOUND
                 verify_detail = dict_reason
@@ -125,17 +134,35 @@ def process_workbook(
                 cache_key = (normalized.query, normalized.kind)
                 cached = verify_cache.get(cache_key)
                 if cached is None:
-                    fresh = history.fresh(normalized.query, normalized.kind) if history else None
+                    fresh = (
+                        history.fresh(normalized.query, normalized.kind)
+                        if history
+                        else None
+                    )
                     if fresh is not None:
                         # 최근 검증 이력 재사용: API 호출 생략
-                        cached = (fresh.verdict, f"{fresh.detail} (이력 재사용 {fresh.checked_at[:10]})", None)
+                        cached = (
+                            fresh.verdict,
+                            f"{fresh.detail} (이력 재사용 {fresh.checked_at[:10]})",
+                            None,
+                        )
                         stats["history_reused"] += 1
                     else:
-                        verification, verify_detail, correction = _verify(normalized.query, normalized.kind, juso, epost)
+                        verification, verify_detail, correction = _verify(
+                            normalized.query, normalized.kind, juso, epost
+                        )
                         if history is not None:
                             previous = history.latest(normalized.query, normalized.kind)
-                            history.record(normalized.query, normalized.kind, verification, verify_detail)
-                            if previous is not None and previous.verdict != verification:
+                            history.record(
+                                normalized.query,
+                                normalized.kind,
+                                verification,
+                                verify_detail,
+                            )
+                            if (
+                                previous is not None
+                                and previous.verdict != verification
+                            ):
                                 # 행정구역 개편·건물 멸실 등의 신호: 사람이 봐야 한다.
                                 verify_detail += f"; ⚠ 판정 변경: {previous.checked_at[:10]} {previous.verdict} → {verification}"
                                 stats["verdict_changed"] += 1
@@ -209,16 +236,20 @@ def collect_feedback(
         if changed:
             requery_changed += 1
         by_result[result] = by_result.get(result, 0) + 1
-        rows.append({
-            "row": row,
-            "result": result,
-            "source": str(source or ""),
-            "currentQuery": current_query,
-            "psDetail": str(ws.cell(row=row, column=ps_detail_idx).value or "") if ps_detail_idx else "",
-            "requery": normalized.query,
-            "requeryChanged": changed,
-            "localStatus": normalized.status,
-        })
+        rows.append(
+            {
+                "row": row,
+                "result": result,
+                "source": str(source or ""),
+                "currentQuery": current_query,
+                "psDetail": str(ws.cell(row=row, column=ps_detail_idx).value or "")
+                if ps_detail_idx
+                else "",
+                "requery": normalized.query,
+                "requeryChanged": changed,
+                "localStatus": normalized.status,
+            }
+        )
     return {
         "input": str(input_path),
         "generated": datetime.now().isoformat(timespec="seconds"),
@@ -237,7 +268,17 @@ def _admin_combo_missing(query: str, kind: str, admin_dict: AdminDict) -> str:
     """
     if kind == "lot":
         lot = parse_lot_addr(query)
-        combo = " ".join(p for p in [lot["sido"], lot["city"], lot["sigungu"], lot.get("eupmyeon", ""), lot["dong"]] if p)
+        combo = " ".join(
+            p
+            for p in [
+                lot["sido"],
+                lot["city"],
+                lot["sigungu"],
+                lot.get("eupmyeon", ""),
+                lot["dong"],
+            ]
+            if p
+        )
     else:
         combo = district_key(query)
     if combo and not admin_dict.contains(combo):
@@ -249,12 +290,19 @@ def _result_note(provider_label: str, result: SearchResult) -> str:
     if result.total_count == 1:
         road = result.first.get("roadAddr") or result.first.get("lnmAdres") or ""
         zip_no = result.first.get("zipNo") or result.first.get("zipNo1") or ""
-        tail = f": {road}" + (f" (우){zip_no}" if zip_no else "") if road or zip_no else ""
+        tail = (
+            f": {road}" + (f" (우){zip_no}" if zip_no else "") if road or zip_no else ""
+        )
         return f"{provider_label} 1건{tail}"
     return f"{provider_label} {result.total_count}건"
 
 
-def _verify(query: str, kind: str, juso: JusoClient | None, epost: KoreaPostRoadNameClient | None) -> tuple[Literal["verified", "ambiguous", "missing"], str, dict[str, str] | None]:
+def _verify(
+    query: str,
+    kind: str,
+    juso: JusoClient | None,
+    epost: KoreaPostRoadNameClient | None,
+) -> tuple[Literal["verified", "ambiguous", "missing"], str, dict[str, str] | None]:
     """(판정, 사람이 읽을 검증 상세, 교정 후보) 반환.
 
     Juso는 상세 포함 검색이 0건이면 골격(시도~지번/건물번호)으로 한 번 더 검색한다.
@@ -280,7 +328,12 @@ def _verify(query: str, kind: str, juso: JusoClient | None, epost: KoreaPostRoad
             except Exception as exc:
                 # 재시도 후에도 남은 전송 오류는 다른 provider 결과로 판정을 이어가고,
                 # 모든 provider가 오류면 아래에서 실행을 중단한다.
-                result = SearchResult("juso", 0, {"errorCode": "transport_error", "errorMessage": str(exc)}, "")
+                result = SearchResult(
+                    "juso",
+                    0,
+                    {"errorCode": "transport_error", "errorMessage": str(exc)},
+                    "",
+                )
             time.sleep(API_CALL_INTERVAL)
             if result.has_error:
                 notes.append(f"JUSO[{label}] 오류")
@@ -343,10 +396,14 @@ def _verify(query: str, kind: str, juso: JusoClient | None, epost: KoreaPostRoad
             results.append(result)
             if not result.has_error and result.total_count != 0:
                 break
-        notes.append("EPOST 오류" if result.has_error else _result_note("EPOST", result))
+        notes.append(
+            "EPOST 오류" if result.has_error else _result_note("EPOST", result)
+        )
     usable_results = [result for result in results if not result.has_error]
     if not usable_results and results:
-        raise RuntimeError("Address validation providers returned API errors; check API keys before marking missing addresses")
+        raise RuntimeError(
+            "Address validation providers returned API errors; check API keys before marking missing addresses"
+        )
     detail = "; ".join(notes)
     if any(result.total_count >= 2 for result in usable_results):
         return "ambiguous", detail, correction

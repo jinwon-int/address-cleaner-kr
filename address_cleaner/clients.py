@@ -100,11 +100,16 @@ class JusoClient:
             return SearchResult(
                 "juso",
                 0,
-                {"errorCode": result["error_code"], "errorMessage": result["error_message"]},
+                {
+                    "errorCode": result["error_code"],
+                    "errorMessage": result["error_message"],
+                },
                 result["raw"],
             )
         rows = result["rows"]
-        return SearchResult("juso", result["total"], rows[0] if rows else {}, result["raw"])
+        return SearchResult(
+            "juso", result["total"], rows[0] if rows else {}, result["raw"]
+        )
 
 
 class KoreaPostRoadNameClient:
@@ -114,12 +119,23 @@ class KoreaPostRoadNameClient:
     )
 
     def __init__(self, key: str | None = None, timeout: float = 5.0):
-        self.key = next((os.getenv(name) for name in EPOST_KEY_ENV_VARS if os.getenv(name)), None) if key is None else key
+        self.key = (
+            next(
+                (os.getenv(name) for name in EPOST_KEY_ENV_VARS if os.getenv(name)),
+                None,
+            )
+            if key is None
+            else key
+        )
         self.timeout = timeout
 
-    def search(self, keyword: str, search_se: str = "road", count: int = 10, retries: int = 3) -> SearchResult:
+    def search(
+        self, keyword: str, search_se: str = "road", count: int = 10, retries: int = 3
+    ) -> SearchResult:
         if not self.key:
-            raise RuntimeError("EPOST_SERVICE_KEY is required for Korea Post validation")
+            raise RuntimeError(
+                "EPOST_SERVICE_KEY is required for Korea Post validation"
+            )
         params = {
             "ServiceKey": self.key,
             "searchSe": search_se,
@@ -130,7 +146,9 @@ class KoreaPostRoadNameClient:
         # Juso 쪽 request_juso와 같은 기준으로 일시적 네트워크 오류/깨진 응답을 재시도한다.
         for attempt in range(retries + 1):
             try:
-                response = requests.get(self.endpoint, params=params, timeout=self.timeout)
+                response = requests.get(
+                    self.endpoint, params=params, timeout=self.timeout
+                )
                 response.raise_for_status()
                 text = response.text
                 root = ET.fromstring(text)
@@ -144,7 +162,10 @@ class KoreaPostRoadNameClient:
             return SearchResult(
                 "epost",
                 0,
-                {"returnCode": return_code, "returnMessage": _text(root, ".//returnMessage")},
+                {
+                    "returnCode": return_code,
+                    "returnMessage": _text(root, ".//returnMessage"),
+                },
                 text,
             )
         total = int(_text(root, ".//totalCount") or _text(root, ".//totalCnt") or "0")

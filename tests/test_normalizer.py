@@ -5,25 +5,40 @@ import requests
 
 from address_cleaner.clients import SearchResult
 from address_cleaner.cli import main
-from address_cleaner.excel import STATUS_AMBIGUOUS, STATUS_NOT_FOUND, _verify, process_workbook
-from address_cleaner.normalizer import compact_for_epost, normalize_for_search, preprocess_raw_address
+from address_cleaner.excel import (
+    STATUS_AMBIGUOUS,
+    STATUS_NOT_FOUND,
+    _verify,
+    process_workbook,
+)
+from address_cleaner.normalizer import (
+    compact_for_epost,
+    normalize_for_search,
+    preprocess_raw_address,
+)
 
 
 def test_lot_address_keeps_building_detail():
-    result = normalize_for_search("경기도 파주시 야당동 57-17 정우펠리스 제303동 제1층 제101호")
+    result = normalize_for_search(
+        "경기도 파주시 야당동 57-17 정우펠리스 제303동 제1층 제101호"
+    )
     assert result.query == "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
     assert result.kind == "lot"
     assert result.searchable
 
 
 def test_lot_address_removes_extra_lot_marker():
-    result = normalize_for_search("경기도 파주시 동패동 7외 1필지 노블타운 제102동 제4층 제401호")
+    result = normalize_for_search(
+        "경기도 파주시 동패동 7외 1필지 노블타운 제102동 제4층 제401호"
+    )
     assert result.query == "경기도 파주시 동패동 7 노블타운 제102동 제401호"
     assert result.kind == "lot"
 
 
 def test_road_address_keeps_detail_after_building_number():
-    result = normalize_for_search("서울특별시 강남구 테헤란로 152 강남파이낸스센터 10층")
+    result = normalize_for_search(
+        "서울특별시 강남구 테헤란로 152 강남파이낸스센터 10층"
+    )
     assert result.query == "서울특별시 강남구 테헤란로 152 강남파이낸스센터"
     assert result.kind == "road"
 
@@ -35,15 +50,26 @@ def test_lot_detail_excludes_spaced_mountain_lot_number():
 
 
 def test_compact_for_epost_uses_road_name_and_building_number_only():
-    assert compact_for_epost("경기도 파주시 하우3길 22 정우펠리스 제303동 제101호", "road") == "하우3길 22"
+    assert (
+        compact_for_epost("경기도 파주시 하우3길 22 정우펠리스 제303동 제101호", "road")
+        == "하우3길 22"
+    )
 
 
 def test_compact_for_epost_uses_lot_area_and_lot_number_only():
-    assert compact_for_epost("경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호", "lot") == "야당동 57-17"
+    assert (
+        compact_for_epost(
+            "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호", "lot"
+        )
+        == "야당동 57-17"
+    )
 
 
 def test_preprocess_repairs_missing_spaces():
-    assert preprocess_raw_address("경기도파주시야당동57-17") == "경기도 파주시 야당동 57-17"
+    assert (
+        preprocess_raw_address("경기도파주시야당동57-17")
+        == "경기도 파주시 야당동 57-17"
+    )
 
 
 def test_malformed_address_is_not_searchable():
@@ -69,7 +95,9 @@ def test_excel_marks_invalid_source_as_not_found(tmp_path):
     ws["H2"] = "주소 미상"
     wb.save(input_path)
 
-    stats = process_workbook(input_path, output_path, source_col="H", target_col="I", status_col="N")
+    stats = process_workbook(
+        input_path, output_path, source_col="H", target_col="I", status_col="N"
+    )
 
     result_wb = openpyxl.load_workbook(output_path)
     result_ws = result_wb.active
@@ -123,7 +151,9 @@ def test_provider_none_with_mark_missing_does_not_mark_searchable_rows(tmp_path)
 
     result_wb = openpyxl.load_workbook(output_path)
     result_ws = result_wb.active
-    assert result_ws["I2"].value == "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    assert (
+        result_ws["I2"].value == "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    )
     assert result_ws["N2"].value is None
     assert stats["missing"] == 0
 
@@ -160,20 +190,38 @@ class _FallbackEpost:
 
 
 def test_verify_marks_ambiguous_when_multiple_results():
-    assert _verify("서울특별시 강남구 테헤란로 152", "road", _FakeJuso(2), None)[0] == "ambiguous"
+    assert (
+        _verify("서울특별시 강남구 테헤란로 152", "road", _FakeJuso(2), None)[0]
+        == "ambiguous"
+    )
 
 
 def test_verify_marks_ambiguous_before_single_match():
-    assert _verify("서울특별시 강남구 테헤란로 152", "road", _FakeJuso(1), _FakeEpost(2))[0] == "ambiguous"
+    assert (
+        _verify("서울특별시 강남구 테헤란로 152", "road", _FakeJuso(1), _FakeEpost(2))[
+            0
+        ]
+        == "ambiguous"
+    )
 
 
 def test_verify_ignores_one_provider_error_when_another_provider_works():
-    assert _verify("서울특별시 강남구 테헤란로 152", "road", _FakeJuso(1), _FakeEpost(0, error=True))[0] == "verified"
+    assert (
+        _verify(
+            "서울특별시 강남구 테헤란로 152",
+            "road",
+            _FakeJuso(1),
+            _FakeEpost(0, error=True),
+        )[0]
+        == "verified"
+    )
 
 
 def test_verify_raises_when_all_configured_providers_error():
     try:
-        _verify("서울특별시 강남구 테헤란로 152", "road", _FakeJuso(0, error=True), None)
+        _verify(
+            "서울특별시 강남구 테헤란로 152", "road", _FakeJuso(0, error=True), None
+        )
     except RuntimeError as exc:
         assert "API errors" in str(exc)
     else:
@@ -188,7 +236,12 @@ class _RaisingJuso:
 
 
 def test_verify_tolerates_juso_transport_error_when_epost_works():
-    assert _verify("서울특별시 강남구 테헤란로 152", "road", _RaisingJuso(), _FakeEpost(1))[0] == "verified"
+    assert (
+        _verify(
+            "서울특별시 강남구 테헤란로 152", "road", _RaisingJuso(), _FakeEpost(1)
+        )[0]
+        == "verified"
+    )
 
 
 def test_verify_raises_when_transport_error_hits_the_only_provider():
@@ -200,7 +253,9 @@ def test_verify_raises_when_transport_error_hits_the_only_provider():
         raise AssertionError("expected RuntimeError")
 
 
-def test_process_workbook_reuses_verification_for_repeated_addresses(tmp_path, monkeypatch):
+def test_process_workbook_reuses_verification_for_repeated_addresses(
+    tmp_path, monkeypatch
+):
     calls: list[str] = []
 
     class _CountingJuso:
@@ -234,7 +289,9 @@ def test_process_workbook_reuses_verification_for_repeated_addresses(tmp_path, m
     assert len(calls) == 1
 
 
-def test_process_workbook_marks_m_column_when_juso_returns_no_results(tmp_path, monkeypatch):
+def test_process_workbook_marks_m_column_when_juso_returns_no_results(
+    tmp_path, monkeypatch
+):
     class _MissingJuso:
         key = "test-key"
 
@@ -266,7 +323,9 @@ def test_process_workbook_marks_m_column_when_juso_returns_no_results(tmp_path, 
     assert stats["missing"] == 1
 
 
-def test_process_workbook_marks_m_column_when_juso_returns_multiple_results(tmp_path, monkeypatch):
+def test_process_workbook_marks_m_column_when_juso_returns_multiple_results(
+    tmp_path, monkeypatch
+):
     class _AmbiguousJuso:
         key = "test-key"
 
@@ -300,7 +359,9 @@ def test_process_workbook_marks_m_column_when_juso_returns_multiple_results(tmp_
 
 def test_verify_falls_back_to_compact_epost_query():
     epost = _FallbackEpost()
-    result, _detail, _ = _verify("경기도 파주시 하우3길 22 정우펠리스 제303동 제101호", "road", None, epost)
+    result, _detail, _ = _verify(
+        "경기도 파주시 하우3길 22 정우펠리스 제303동 제101호", "road", None, epost
+    )
     assert result == "verified"
     assert epost.queries == [
         ("경기도 파주시 하우3길 22 정우펠리스 제303동 제101호", "road"),
@@ -322,26 +383,30 @@ def test_cli_prints_clean_error_for_missing_api_keys(tmp_path, capsys):
     ws["H2"] = "경기도 파주시 야당동 57-17"
     wb.save(input_path)
 
-    exit_code = main([
-        "excel",
-        str(input_path),
-        "-o",
-        str(output_path),
-        "--source-col",
-        "H",
-        "--target-col",
-        "I",
-        "--status-col",
-        "N",
-        "--mark-missing",
-    ])
+    exit_code = main(
+        [
+            "excel",
+            str(input_path),
+            "-o",
+            str(output_path),
+            "--source-col",
+            "H",
+            "--target-col",
+            "I",
+            "--status-col",
+            "N",
+            "--mark-missing",
+        ]
+    )
 
     captured = capsys.readouterr()
     assert exit_code == 2
     assert captured.err.startswith("error: ")
 
 
-def test_registry_subcommand_delegates_to_registry_refiner(tmp_path, capsys, monkeypatch):
+def test_registry_subcommand_delegates_to_registry_refiner(
+    tmp_path, capsys, monkeypatch
+):
     input_path = tmp_path / "input.xlsx"
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -433,8 +498,12 @@ def test_epost_search_retries_transient_errors(monkeypatch):
 
 def test_duplex_floor_detail_with_parenthetical_is_removed():
     # 실제 전산 입력 실패 사례: '제1(상층하층)층'이 검색어에 남아 우편번호 확정 실패.
-    result = normalize_for_search("경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제1(상층하층)층 제101호")
-    assert result.query == "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제101호"
+    result = normalize_for_search(
+        "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제1(상층하층)층 제101호"
+    )
+    assert (
+        result.query == "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제101호"
+    )
     assert result.kind == "lot"
 
 
@@ -449,7 +518,8 @@ def test_verify_retries_juso_with_base_skeleton_when_detail_query_misses():
             self.queries.append(query)
             if query == "경기도 고양시 일산동구 중산동 78-7":
                 return SearchResult(
-                    "juso", 1,
+                    "juso",
+                    1,
                     {"roadAddr": "경기도 고양시 일산동구 중앙로 123", "zipNo": "10401"},
                     {},
                 )
@@ -457,7 +527,10 @@ def test_verify_retries_juso_with_base_skeleton_when_detail_query_misses():
 
     juso = _BaseOnlyJuso()
     status, detail, correction = _verify(
-        "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제101호", "lot", juso, None
+        "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제101호",
+        "lot",
+        juso,
+        None,
     )
 
     assert status == "verified"
@@ -477,7 +550,8 @@ def test_process_workbook_writes_detail_column(tmp_path, monkeypatch):
 
         def search(self, query: str, count: int = 5):
             return SearchResult(
-                "juso", 1,
+                "juso",
+                1,
                 {"roadAddr": "경기도 파주시 하우3길 22", "zipNo": "10911"},
                 {},
             )
@@ -587,14 +661,17 @@ def test_verify_suggests_lot_variant_without_changing_status():
             self.queries.append(query)
             if query == "경기도 파주시 야당동 57-17":
                 return SearchResult(
-                    "juso", 1,
+                    "juso",
+                    1,
                     {"roadAddr": "경기도 파주시 하우3길 22", "zipNo": "10911"},
                     {},
                 )
             return SearchResult("juso", 0, {}, {})
 
     juso = _VariantJuso()
-    status, detail, correction = _verify("경기도 파주시 야당동 5717 정우펠리스 101호", "lot", juso, None)
+    status, detail, correction = _verify(
+        "경기도 파주시 야당동 5717 정우펠리스 101호", "lot", juso, None
+    )
 
     # 변형 후보는 제안만 한다: 판정은 그대로 검색주소없음(missing).
     assert status == "missing"
@@ -604,7 +681,9 @@ def test_verify_suggests_lot_variant_without_changing_status():
     assert correction["working"] == "경기도 파주시 야당동 57-17"
 
 
-def _single_row_workbook(tmp_path, addr="경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"):
+def _single_row_workbook(
+    tmp_path, addr="경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+):
     input_path = tmp_path / "input.xlsx"
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -624,22 +703,39 @@ def test_history_reuses_fresh_verdict_and_skips_api(tmp_path, monkeypatch):
 
         def search(self, query: str, count: int = 5):
             calls.append(query)
-            return SearchResult("juso", 1, {"roadAddr": "경기도 파주시 하우3길 22", "zipNo": "10911"}, {})
+            return SearchResult(
+                "juso",
+                1,
+                {"roadAddr": "경기도 파주시 하우3길 22", "zipNo": "10911"},
+                {},
+            )
 
     monkeypatch.setattr("address_cleaner.excel.JusoClient", _CountingJuso)
     input_path = _single_row_workbook(tmp_path)
     history = VerifyHistory(tmp_path / "history.sqlite")
 
     stats1 = process_workbook(
-        input_path, tmp_path / "out1.xlsx",
-        source_col="H", target_col="I", status_col="M", detail_col="N",
-        provider="juso", mark_missing=True, history=history,
+        input_path,
+        tmp_path / "out1.xlsx",
+        source_col="H",
+        target_col="I",
+        status_col="M",
+        detail_col="N",
+        provider="juso",
+        mark_missing=True,
+        history=history,
     )
     first_calls = len(calls)
     stats2 = process_workbook(
-        input_path, tmp_path / "out2.xlsx",
-        source_col="H", target_col="I", status_col="M", detail_col="N",
-        provider="juso", mark_missing=True, history=history,
+        input_path,
+        tmp_path / "out2.xlsx",
+        source_col="H",
+        target_col="I",
+        status_col="M",
+        detail_col="N",
+        provider="juso",
+        mark_missing=True,
+        history=history,
     )
     history.close()
 
@@ -664,14 +760,23 @@ def test_history_flags_verdict_change(tmp_path, monkeypatch):
     history = VerifyHistory(tmp_path / "history.sqlite", max_age_days=14)
     # 한 달 전에는 1건(verified)이었다고 기록해 둔다 → 재사용 기한이 지나 재검증된다.
     history.record(
-        "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호", "lot",
-        "verified", "JUSO[상세포함] 1건", checked_at="2026-05-10T09:00:00",
+        "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호",
+        "lot",
+        "verified",
+        "JUSO[상세포함] 1건",
+        checked_at="2026-05-10T09:00:00",
     )
 
     stats = process_workbook(
-        input_path, tmp_path / "out.xlsx",
-        source_col="H", target_col="I", status_col="M", detail_col="N",
-        provider="juso", mark_missing=True, history=history,
+        input_path,
+        tmp_path / "out.xlsx",
+        source_col="H",
+        target_col="I",
+        status_col="M",
+        detail_col="N",
+        provider="juso",
+        mark_missing=True,
+        history=history,
     )
     history.close()
 
@@ -689,17 +794,30 @@ def test_corrections_report_collects_variant_hits(tmp_path, monkeypatch):
 
         def search(self, query: str, count: int = 5):
             if query == "경기도 파주시 야당동 57-17":
-                return SearchResult("juso", 1, {"roadAddr": "경기도 파주시 하우3길 22", "zipNo": "10911"}, {})
+                return SearchResult(
+                    "juso",
+                    1,
+                    {"roadAddr": "경기도 파주시 하우3길 22", "zipNo": "10911"},
+                    {},
+                )
             return SearchResult("juso", 0, {}, {})
 
     monkeypatch.setattr("address_cleaner.excel.JusoClient", _VariantJuso)
-    input_path = _single_row_workbook(tmp_path, addr="경기도 파주시 야당동 5717 정우펠리스 101호")
+    input_path = _single_row_workbook(
+        tmp_path, addr="경기도 파주시 야당동 5717 정우펠리스 101호"
+    )
     corrections_path = tmp_path / "corrections.json"
 
     stats = process_workbook(
-        input_path, tmp_path / "out.xlsx",
-        source_col="H", target_col="I", status_col="M", detail_col="N",
-        provider="juso", mark_missing=True, corrections_path=corrections_path,
+        input_path,
+        tmp_path / "out.xlsx",
+        source_col="H",
+        target_col="I",
+        status_col="M",
+        detail_col="N",
+        provider="juso",
+        mark_missing=True,
+        corrections_path=corrections_path,
     )
 
     assert stats["correction_candidates"] == 1
@@ -716,16 +834,27 @@ def test_collect_feedback_groups_failures_and_requeries(tmp_path):
     input_path = tmp_path / "result.xlsx"
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws["H1"], ws["I1"], ws["M1"], ws["N1"] = "원주소", "주소검색어", "처리결과", "처리상세"
+    ws["H1"], ws["I1"], ws["M1"], ws["N1"] = (
+        "원주소",
+        "주소검색어",
+        "처리결과",
+        "처리상세",
+    )
     # 행2: 완료 → 리포트 제외
     ws["H2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
     ws["I2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
     ws["M2"] = "완료"
     # 행3: 실패 + 예전 규칙으로 만든 I열(복층 표기 잔존) → 재정제 결과가 달라진다
-    ws["H3"] = "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제1(상층하층)층 제101호"
-    ws["I3"] = "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제1(상층하층)층 제101호"
+    ws["H3"] = (
+        "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제1(상층하층)층 제101호"
+    )
+    ws["I3"] = (
+        "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제1(상층하층)층 제101호"
+    )
     ws["M3"] = "실패(우편번호미확정)"
-    ws["N3"] = "정보요청팝업[우편번호미확정] :: 메시지 | 0510 | 우편번호 정보를 입력해주십시오."
+    ws["N3"] = (
+        "정보요청팝업[우편번호미확정] :: 메시지 | 0510 | 우편번호 정보를 입력해주십시오."
+    )
     wb.save(input_path)
 
     report = collect_feedback(input_path)

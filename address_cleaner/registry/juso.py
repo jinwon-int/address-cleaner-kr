@@ -86,7 +86,14 @@ def save_cache(cache_file: Path, cache: dict[str, Any]) -> None:
     tmp.replace(cache_file)
 
 
-def juso_query(session: requests.Session, key: str, keyword: str, cache: dict[str, Any], count: int = 5, preserve_commas: bool = False) -> dict[str, Any]:
+def juso_query(
+    session: requests.Session,
+    key: str,
+    keyword: str,
+    cache: dict[str, Any],
+    count: int = 5,
+    preserve_commas: bool = False,
+) -> dict[str, Any]:
     keyword = juso_keyword(keyword, preserve_commas=preserve_commas)
     if not keyword:
         return {"keyword": "", "total": 0, "rows": []}
@@ -99,7 +106,12 @@ def juso_query(session: requests.Session, key: str, keyword: str, cache: dict[st
         limiter.wait()
     data = request_juso(key, keyword, count, timeout=15, session=session)
     if "error_code" in data:
-        res = {"keyword": keyword, "total": 0, "rows": [], "error": data["error_message"]}
+        res = {
+            "keyword": keyword,
+            "total": 0,
+            "rows": [],
+            "error": data["error_message"],
+        }
     else:
         res = {"keyword": keyword, "total": data["total"], "rows": data["rows"][:count]}
     with _CACHE_LOCK:
@@ -110,7 +122,9 @@ def juso_query(session: requests.Session, key: str, keyword: str, cache: dict[st
     return res
 
 
-def first_pass_status(full: dict[str, Any], normalized: dict[str, Any] | None) -> tuple[str, dict[str, Any]]:
+def first_pass_status(
+    full: dict[str, Any], normalized: dict[str, Any] | None
+) -> tuple[str, dict[str, Any]]:
     if full["total"] == 1:
         return "검색가능_단일_원문", full
     if full["total"] >= 2:
@@ -122,14 +136,20 @@ def first_pass_status(full: dict[str, Any], normalized: dict[str, Any] | None) -
     return "검색불가", full
 
 
-def make_queries(raw: Any, final: Any, road_complete: Any, jibun_complete: Any) -> list[str]:
+def make_queries(
+    raw: Any, final: Any, road_complete: Any, jibun_complete: Any
+) -> list[str]:
     bases: list[str] = []
     for x in [raw, final, road_complete, jibun_complete]:
         c = clean_raw(x)
         if c:
             bases.extend([c, strip_unit(c), strip_building_tail_after_lot(c)])
             bases.extend(lot_variants(c))
-    all_cleaned = [clean_raw(x) for x in [raw, final, road_complete, jibun_complete] if clean_raw(x)]
+    all_cleaned = [
+        clean_raw(x)
+        for x in [raw, final, road_complete, jibun_complete]
+        if clean_raw(x)
+    ]
     for c in all_cleaned:
         rk = road_no_key(c)
         lk = lot_key(c)
@@ -155,14 +175,43 @@ def make_queries(raw: Any, final: Any, road_complete: Any, jibun_complete: Any) 
 
 
 def candidate_id(row: dict[str, Any]) -> str:
-    return "|".join(str(row.get(k, "")) for k in ["admCd", "rnMgtSn", "udrtYn", "buldMnnm", "buldSlno", "bdMgtSn", "lnbrMnnm", "lnbrSlno"])
+    return "|".join(
+        str(row.get(k, ""))
+        for k in [
+            "admCd",
+            "rnMgtSn",
+            "udrtYn",
+            "buldMnnm",
+            "buldSlno",
+            "bdMgtSn",
+            "lnbrMnnm",
+            "lnbrSlno",
+        ]
+    )
 
 
-def score_candidate(row: dict[str, Any], raw: Any, final: Any, road_complete: Any, jibun_complete: Any, hit_queries: list[dict[str, Any]]) -> tuple[int, list[str]]:
-    combined = norm(" ".join(str(row.get(k, "") or "") for k in ["roadAddr", "roadAddrPart1", "jibunAddr", "bdNm"]))
+def score_candidate(
+    row: dict[str, Any],
+    raw: Any,
+    final: Any,
+    road_complete: Any,
+    jibun_complete: Any,
+    hit_queries: list[dict[str, Any]],
+) -> tuple[int, list[str]]:
+    combined = norm(
+        " ".join(
+            str(row.get(k, "") or "")
+            for k in ["roadAddr", "roadAddrPart1", "jibunAddr", "bdNm"]
+        )
+    )
     road = norm(row.get("roadAddr") or row.get("roadAddrPart1") or "")
     jibun = norm(row.get("jibunAddr") or "")
-    texts = [clean_raw(raw), clean_raw(final), clean_raw(road_complete), clean_raw(jibun_complete)]
+    texts = [
+        clean_raw(raw),
+        clean_raw(final),
+        clean_raw(road_complete),
+        clean_raw(jibun_complete),
+    ]
     score = 0
     reasons: list[str] = []
     for lk in {lot_key(t) for t in texts if lot_key(t)}:
@@ -185,7 +234,11 @@ def score_candidate(row: dict[str, Any], raw: Any, final: Any, road_complete: An
             score += 10
             reasons.append(f"법정동일치:{dg}")
             break
-    matched = [t for t in building_tokens(raw, final, road_complete, jibun_complete) if t in combined.lower()]
+    matched = [
+        t
+        for t in building_tokens(raw, final, road_complete, jibun_complete)
+        if t in combined.lower()
+    ]
     if matched:
         score += min(25, 8 * len(matched))
         reasons.append("건물명일치:" + ",".join(matched[:3]))

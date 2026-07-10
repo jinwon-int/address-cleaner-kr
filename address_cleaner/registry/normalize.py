@@ -50,10 +50,17 @@ def typo_fix_first_pass(value: Any) -> str:
 # 데이터에서 실제로 발견된 오타 교정 규칙. CLI의 --typo-rules JSON으로
 # 코드 수정 없이 규칙을 추가할 수 있다.
 BASE_TYPO_REPLACEMENTS: list[tuple[str, str]] = [
-    ("서울틀벽시", "서울특별시"), ("서울특벽시", "서울특별시"), ("서욽특별시", "서울특별시"), ("서울시", "서울특별시"),
-    ("인천시", "인천광역시"), ("인천 광역시", "인천광역시"), ("인천광역시 시 ", "인천광역시 "),
+    ("서울틀벽시", "서울특별시"),
+    ("서울특벽시", "서울특별시"),
+    ("서욽특별시", "서울특별시"),
+    ("서울시", "서울특별시"),
+    ("인천시", "인천광역시"),
+    ("인천 광역시", "인천광역시"),
+    ("인천광역시 시 ", "인천광역시 "),
     ("경기도 도 ", "경기도 "),
-    ("논현도", "논현동"), ("프루지오", "푸르지오"), ("게양대로", "계양대로"),
+    ("논현도", "논현동"),
+    ("프루지오", "푸르지오"),
+    ("게양대로", "계양대로"),
 ]
 
 _extra_typo_replacements: list[tuple[str, str]] = []
@@ -72,7 +79,9 @@ def load_typo_rules(path: Path) -> list[tuple[str, str]]:
     rules: list[tuple[str, str]] = []
     for item in data:
         if not (isinstance(item, (list, tuple)) and len(item) == 2):
-            raise ValueError(f'오타 규칙 형식 오류: {item!r} (예: ["프루지오", "푸르지오"])')
+            raise ValueError(
+                f'오타 규칙 형식 오류: {item!r} (예: ["프루지오", "푸르지오"])'
+            )
         rules.append((str(item[0]), str(item[1])))
     return rules
 
@@ -101,7 +110,9 @@ def clean_raw(value: Any) -> str:
     s = re.sub(r"\s*외\s*\d+\s*필지", "", s)
     s = re.sub(r"제\s*(\d+)\s*동", r"\1동", s)
     s = re.sub(r"제\s*([가-힣A-Za-z])\s*동", r"\1동", s)
-    s = re.sub(r"제\s*(\d+)\s*\([^)]*\)\s*층", r"\1층", s)  # 제1(상층하층)층 같은 복층 표기
+    s = re.sub(
+        r"제\s*(\d+)\s*\([^)]*\)\s*층", r"\1층", s
+    )  # 제1(상층하층)층 같은 복층 표기
     s = re.sub(r"제\s*(\d+)\s*층", r"\1층", s)
     s = re.sub(r"제\s*([가-힣A-Za-z]?\d{1,4})\s*호", r"\1호", s)
     s = re.sub(r"제\s*([가-힣A-Za-z])\s*(\d{3,4})\s*호", r"\1동 \2호", s)
@@ -114,7 +125,9 @@ def clean_raw(value: Any) -> str:
 
 
 BARE_TRAILING_NUMBER = re.compile(r"\s+\d{1,4}[A-Za-z]?\s*$")
-ADDR_NUMBER = re.compile(r"(?:동|가|리)\s+(?:산\s*)?\d|(?:로|길)\d*(?:번길|길|로)?\s*\d")
+ADDR_NUMBER = re.compile(
+    r"(?:동|가|리)\s+(?:산\s*)?\d|(?:로|길)\d*(?:번길|길|로)?\s*\d"
+)
 
 DETAIL_PATTERNS = [
     re.compile(r"\s+\d{1,4}\s*호\s*$"),
@@ -185,9 +198,30 @@ def parse_lot_addr(*texts: Any) -> dict[str, str]:
         m = find_lot(s)
         if m:
             d = {k: (v or "") for k, v in m.groupdict().items()}
-            d["addr"] = norm(" ".join(x for x in [d["sido"], d["city"], d["sigungu"], d["eupmyeon"], d["dong"], d["lot"]] if x))
+            d["addr"] = norm(
+                " ".join(
+                    x
+                    for x in [
+                        d["sido"],
+                        d["city"],
+                        d["sigungu"],
+                        d["eupmyeon"],
+                        d["dong"],
+                        d["lot"],
+                    ]
+                    if x
+                )
+            )
             return d
-    return {"sido": "", "city": "", "sigungu": "", "eupmyeon": "", "dong": "", "lot": "", "addr": ""}
+    return {
+        "sido": "",
+        "city": "",
+        "sigungu": "",
+        "eupmyeon": "",
+        "dong": "",
+        "lot": "",
+        "addr": "",
+    }
 
 
 def road_no_key(value: Any) -> str:
@@ -207,7 +241,10 @@ def lot_key(value: Any) -> str:
 
 def district_key(value: Any) -> str:
     s = norm(value)
-    m = re.search(rf"((?:{SIDO_RE})\s+(?:[가-힣]+시(?:\s+(?:[가-힣]+구|[가-힣]+군))?|[가-힣]+구|[가-힣]+군))", s)
+    m = re.search(
+        rf"((?:{SIDO_RE})\s+(?:[가-힣]+시(?:\s+(?:[가-힣]+구|[가-힣]+군))?|[가-힣]+구|[가-힣]+군))",
+        s,
+    )
     return norm(m.group(1)) if m else ""
 
 
@@ -220,7 +257,9 @@ def dong_key(value: Any) -> str:
 def lot_variants(value: Any) -> list[str]:
     s = norm(value)
     out: list[str] = []
-    for m in re.finditer(rf"((?:{SIDO_RE})\s+.+?\s+[가-힣0-9]+(?:동|가|리)\s+)(\d{{3,5}})(\b)", s):
+    for m in re.finditer(
+        rf"((?:{SIDO_RE})\s+.+?\s+[가-힣0-9]+(?:동|가|리)\s+)(\d{{3,5}})(\b)", s
+    ):
         n = m.group(2)
         splits: list[int] = []
         if len(n) == 4:
@@ -234,14 +273,34 @@ def lot_variants(value: Any) -> list[str]:
     return out
 
 
-STOP_BUILDING = {"제", "층", "호", "동", "외", "필지", "인천광역시", "서울특별시", "경기도"}
+STOP_BUILDING = {
+    "제",
+    "층",
+    "호",
+    "동",
+    "외",
+    "필지",
+    "인천광역시",
+    "서울특별시",
+    "경기도",
+}
 
 
 def building_tokens(*texts: Any) -> list[str]:
     joined = " ".join(norm(t) for t in texts if t)
-    joined = re.sub(r"(서울특별시|인천광역시|경기도|[가-힣]+시|[가-힣]+구|[가-힣]+군|[가-힣0-9]+동|[가-힣0-9]+가|[가-힣0-9]+리)", " ", joined)
-    joined = re.sub(r"[가-힣0-9]+(?:로|길)\d*(?:번길|길|로)?\s*\d*(?:-\d+)?", " ", joined)
-    joined = re.sub(r"\b산\d+(?:-\d+)?\b|\b\d+(?:-\d+)?\b|\b\d{1,4}호\b|\b\d{1,4}층\b|\b\d{1,3}동\b", " ", joined)
+    joined = re.sub(
+        r"(서울특별시|인천광역시|경기도|[가-힣]+시|[가-힣]+구|[가-힣]+군|[가-힣0-9]+동|[가-힣0-9]+가|[가-힣0-9]+리)",
+        " ",
+        joined,
+    )
+    joined = re.sub(
+        r"[가-힣0-9]+(?:로|길)\d*(?:번길|길|로)?\s*\d*(?:-\d+)?", " ", joined
+    )
+    joined = re.sub(
+        r"\b산\d+(?:-\d+)?\b|\b\d+(?:-\d+)?\b|\b\d{1,4}호\b|\b\d{1,4}층\b|\b\d{1,3}동\b",
+        " ",
+        joined,
+    )
     seen: set[str] = set()
     out: list[str] = []
     for token in re.findall(r"[가-힣A-Za-z][가-힣A-Za-z0-9\-]{1,}", joined):
@@ -252,7 +311,21 @@ def building_tokens(*texts: Any) -> list[str]:
     return out[:8]
 
 
-KOR_DONG_MAP = {"에이": "A", "비": "B", "씨": "C", "시": "C", "디": "D", "이": "E", "에프": "F", "지": "G", "에취": "H", "에이치": "H", "아이": "I", "제이": "J", "케이": "K"}
+KOR_DONG_MAP = {
+    "에이": "A",
+    "비": "B",
+    "씨": "C",
+    "시": "C",
+    "디": "D",
+    "이": "E",
+    "에프": "F",
+    "지": "G",
+    "에취": "H",
+    "에이치": "H",
+    "아이": "I",
+    "제이": "J",
+    "케이": "K",
+}
 
 
 def normalize_bld_dong(value: Any) -> str:
@@ -364,10 +437,19 @@ def original_is_under_specified(raw: Any) -> bool:
     if not has_unit:
         return False
     # A lot number must not merely be the unit number in '마장동 801호'.
-    has_lot = bool(re.search(r"[가-힣0-9]+(?:동|가|리)\s*(?:산\s*)?\d+(?:-\d+)?(?:번지)?(?!\d)(?!\s*호)", s))
+    has_lot = bool(
+        re.search(
+            r"[가-힣0-9]+(?:동|가|리)\s*(?:산\s*)?\d+(?:-\d+)?(?:번지)?(?!\d)(?!\s*호)",
+            s,
+        )
+    )
     # Some source rows omit the 법정리 after 읍/면 but still provide a usable lot number.
-    has_lot = has_lot or bool(re.search(r"[가-힣]+(?:읍|면)\s+\d+(?:-\d+)?(?!\d)(?!\s*호)", s))
-    has_road_no = bool(re.search(r"[가-힣0-9]+(?:로|길)\d*(?:번길|길|로)?\s*\d+(?:-\d+)?", s))
+    has_lot = has_lot or bool(
+        re.search(r"[가-힣]+(?:읍|면)\s+\d+(?:-\d+)?(?!\d)(?!\s*호)", s)
+    )
+    has_road_no = bool(
+        re.search(r"[가-힣0-9]+(?:로|길)\d*(?:번길|길|로)?\s*\d+(?:-\d+)?", s)
+    )
     if has_lot or has_road_no:
         return False
 
@@ -376,10 +458,18 @@ def original_is_under_specified(raw: Any) -> bool:
     stripped = re.sub(r"\b[가-힣]+(?:시|구|군|읍|면)\b", " ", stripped)
     # Remove standalone legal-dong/ri tokens only; do not strip building names like 가람빌리지.
     stripped = re.sub(r"(?:^|\s)[가-힣0-9]+(?:동|가|리)(?=\s|$)", " ", stripped)
-    stripped = re.sub(r"(?:제\s*)?[가-힣A-Za-z]?\d{1,4}\s*호|(?:제\s*)?\d{1,3}\s*층|외\s*\d+\s*필지", " ", stripped)
+    stripped = re.sub(
+        r"(?:제\s*)?[가-힣A-Za-z]?\d{1,4}\s*호|(?:제\s*)?\d{1,3}\s*층|외\s*\d+\s*필지",
+        " ",
+        stripped,
+    )
     stripped = re.sub(r"[() ,]+", " ", stripped)
     stripped = re.sub(r"\d+", " ", stripped)
-    meaningful = [t for t in re.findall(r"[가-힣A-Za-z]{2,}", stripped) if t not in {"번지", "지상"}]
+    meaningful = [
+        t
+        for t in re.findall(r"[가-힣A-Za-z]{2,}", stripped)
+        if t not in {"번지", "지상"}
+    ]
     return not meaningful
 
 
