@@ -1,0 +1,47 @@
+# 릴리스 빌드 워크플로 — CONTRIBUTING의 승인 게이트에 따라 자동 트리거 없이
+# workflow_dispatch 수동 실행 전용이다. sdist/wheel을 빌드해 아티팩트로 올리는
+# 데까지만 수행하고, PyPI 업로드는 공개 결정 이후 별도 승인 단계로 분리한다
+# (Trusted Publisher 설정 권장).
+name: release-build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Smoke-test wheel install
+        run: |
+          python -m pip install dist/*.whl
+          python -c "import address_cleaner; print(address_cleaner.__version__)"
+          python - <<'EOF'
+          # py.typed가 wheel에 포함되는지 확인 (외부 타입체커 인식용)
+          import pathlib
+          import address_cleaner
+          marker = pathlib.Path(address_cleaner.__file__).parent / "py.typed"
+          assert marker.exists(), "py.typed missing from installed package"
+          print("py.typed ok")
+          EOF
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

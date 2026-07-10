@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import datetime
 import json
 from pathlib import Path
@@ -37,6 +38,26 @@ MAX_REQ_PER_SEC = 10.0
 
 # (판정, 사람이 읽을 검증 상세, 교정 후보)
 VerifyOutcome = tuple[str, str, "dict[str, str] | None"]
+
+Verdict = Literal["verified", "ambiguous", "missing"]
+
+
+@dataclass(frozen=True)
+class VerifyResult:
+    """verify_address()의 결과.
+
+    - verdict: verified(1건 확정) / ambiguous(2건 이상) / missing(0건 또는 검색어 없음)
+    - detail: 사람이 읽을 검증 상세 (검색 경로/건수/표준주소/우편번호)
+    - correction: 원문 그대로는 안 되고 골격/지번 변형으로만 통한 경우의 교정 후보
+    """
+
+    verdict: Verdict
+    detail: str
+    correction: dict[str, str] | None = None
+
+    @property
+    def verified(self) -> bool:
+        return self.verdict == "verified"
 
 
 def col_to_index(col: str) -> int:
@@ -363,6 +384,40 @@ def _result_note(provider_label: str, result: SearchResult) -> str:
     return f"{provider_label} {result.total_count}건"
 
 
+def verify_address(
+    query: str,
+    kind: str,
+    *,
+    juso: JusoClient | None = None,
+    epost: KoreaPostRoadNameClient | None = None,
+) -> VerifyResult:
+    """주소 검색어 1건을 juso.go.kr/우체국 API로 검증한다 (엑셀 없이 사용 가능).
+
+    query는 normalize_for_search()가 만든 검색어(.query), kind는 그 종류(.kind:
+    "road"|"lot")를 그대로 넘기면 된다. 클라이언트를 넘기지 않으면 환경변수 키로
+    기본 클라이언트를 만들며, 사용 가능한 provider가 하나도 없으면 RuntimeError.
+
+    >>> normalized = normalize_for_search("경기도 파주시 야당동 57-17 ...")
+    >>> result = verify_address(normalized.query, normalized.kind)
+    >>> result.verdict
+    'verified'
+    """
+    if juso is None and epost is None:
+        juso = JusoClient()
+        epost = KoreaPostRoadNameClient()
+        if not juso.key:
+            juso = None
+        if not epost.key:
+            epost = None
+        if juso is None and epost is None:
+            raise RuntimeError(
+                "At least one API key is required "
+                "(JUSO_CONFIRM_KEY or EPOST_SERVICE_KEY)"
+            )
+    verdict, detail, correction = _verify(query, kind, juso, epost)
+    return VerifyResult(verdict, detail, correction)
+
+
 def _verify(
     query: str,
     kind: str,
@@ -371,7 +426,7 @@ def _verify(
     *,
     juso_limiter: RateLimiter | None = None,
     epost_limiter: RateLimiter | None = None,
-) -> tuple[Literal["verified", "ambiguous", "missing"], str, dict[str, str] | None]:
+) -> tuple[Verdict, str, dict[str, str] | None]:
     """(판정, 사람이 읽을 검증 상세, 교정 후보) 반환.
 
     입력 → 출력만 있는 순수 계산이라 그대로 병렬화 단위가 된다. 호출 페이싱은
