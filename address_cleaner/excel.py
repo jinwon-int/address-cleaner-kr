@@ -34,6 +34,9 @@ API_CALL_INTERVAL = 0.05
 
 def col_to_index(col: str) -> int:
     col = col.strip().upper()
+    if not col:
+        # 빈 문자열이 0(존재하지 않는 열)으로 조용히 통과하면 저장 시점에야 깨진다.
+        raise ValueError("Invalid Excel column: (empty)")
     value = 0
     for ch in col:
         if not ("A" <= ch <= "Z"):

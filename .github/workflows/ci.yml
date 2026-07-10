@@ -50,5 +50,5 @@ jobs:
         run: mypy
 
       - name: Run tests
-        # fail-under는 실측 커버리지(85%)보다 약간 낮게 잡아 회귀만 막는다.
-        run: pytest -q --cov=address_cleaner --cov-report=term-missing --cov-fail-under=80
+        # fail-under는 실측 커버리지(91%)보다 약간 낮게 잡아 회귀만 막는다.
+        run: pytest -q --cov=address_cleaner --cov-report=term-missing --cov-fail-under=88
