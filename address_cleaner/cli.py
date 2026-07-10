@@ -10,6 +10,7 @@ from .excel import collect_feedback, process_workbook
 from .history import VerifyHistory
 from .normalizer import compact_for_epost, normalize_for_search
 from .regions import AdminDict
+from .typo import load_typo_rules, set_extra_typo_rules
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -65,6 +66,12 @@ def main(argv: list[str] | None = None) -> int:
         "--corrections-out",
         help="교정 후보 리포트 JSON 저장 경로 (골격/지번변형으로만 통한 주소 쌍)",
     )
+    p_excel.add_argument(
+        "--typo-rules",
+        type=Path,
+        default=None,
+        help='추가 오타 교정 규칙 JSON 경로 (예: [["프루지오", "푸르지오"]])',
+    )
 
     p_feedback = sub.add_parser(
         "feedback", help="파워쉘 처리결과 엑셀의 실패 행을 모아 재정제 리포트 생성"
@@ -90,6 +97,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "excel":
         history = None
         try:
+            if args.typo_rules:
+                set_extra_typo_rules(load_typo_rules(args.typo_rules))
             admin_dict = (
                 AdminDict.load(Path(args.admin_dict)) if args.admin_dict else None
             )

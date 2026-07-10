@@ -106,6 +106,14 @@ address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I \
 
 - `--history`: 검증 결과를 SQLite에 누적합니다. 기한(기본 14일, `--history-max-age-days`) 내 같은 주소는 API를 부르지 않고 재사용하고, 이전 실행과 판정이 달라진 주소(예: 지난달 1건 → 이번달 0건)는 검증상세에 `⚠ 판정 변경`으로 표시합니다. 행정구역 개편·건물 멸실 신호이므로 사람이 확인해야 합니다.
 - `--corrections-out`: 원문 그대로는 검색이 안 되고 골격/지번 변형으로만 통한 주소 쌍을 JSON 리포트로 수확합니다. 사람이 검토해 원주소를 고치거나 `--typo-rules` 규칙으로 승격하면, 오타 사전이 데이터에서 스스로 자랍니다.
+- `--typo-rules`: 승격한 오타 교정 규칙 JSON을 일반 정제에 적용합니다(등기 모드와 같은 형식·같은 적용 지점). 수확 → 검토 → 승격 → 적용의 학습 루프가 일반 모드 안에서 완결됩니다.
+
+```bash
+# corrections.json 검토 후 규칙으로 승격한 rules.json 적용
+# 형식: [["정우팰리스", "정우펠리스"]] 또는 {"replacements": [["...", "..."]]}
+address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I \
+  --status-col M --mark-missing --typo-rules rules.json --corrections-out corrections.json
+```
 
 ### 1-1) 파워쉘 실패 환류 리포트
 

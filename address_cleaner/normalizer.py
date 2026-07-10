@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from .regions import ALL_SIDO_NAMES
+from .typo import apply_typo_replacements
 
 
 PAREN_CONTENT_RE = re.compile(r"\([^)]*\)")
@@ -91,6 +92,9 @@ def preprocess_raw_address(raw_addr: Any) -> str:
     text = text.replace("\t", " ")
     text = re.sub(r"[\x00-\x1f]", " ", text)
     text = ZIPCODE_RE.sub("", text).strip()
+    # 수확(--corrections-out)→검토→승격된 오타 규칙을 등기 모드와 같은 지점(원문
+    # 정리 단계)에서 적용해, ROAD/LOT 골격 매칭 전에 오타가 교정되게 한다.
+    text = apply_typo_replacements(text)
 
     # 시/도 명칭은 regions.py가 단일 출처다 (구명칭 포함).
     sido_keywords = ALL_SIDO_NAMES

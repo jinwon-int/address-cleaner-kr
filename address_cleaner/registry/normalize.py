@@ -5,12 +5,19 @@ Juso API나 엑셀에 의존하지 않는 순수 텍스트 처리만 담는다.
 
 from __future__ import annotations
 
-import json
 import re
-from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from ..regions import SIDO_RE as REGIONS_SIDO_RE
+
+# 오타 교정 규칙은 일반 정제기(normalizer)와 공유하는 공용 모듈로 옮겨졌다.
+# 기존 import 경로(address_cleaner.registry.normalize.load_typo_rules 등) 하위호환 유지.
+from ..typo import (  # noqa: F401
+    BASE_TYPO_REPLACEMENTS,
+    load_typo_rules,
+    set_extra_typo_rules,
+    typo_fix,
+)
 
 SPECIAL_CHARS = re.compile(r"[%,=><\[\]]+")
 
@@ -45,61 +52,6 @@ def typo_fix_first_pass(value: Any) -> str:
     for a, b in replacements:
         s = s.replace(a, b)
     return normalize_spaces(s)
-
-
-# 데이터에서 실제로 발견된 오타 교정 규칙. CLI의 --typo-rules JSON으로
-# 코드 수정 없이 규칙을 추가할 수 있다.
-BASE_TYPO_REPLACEMENTS: list[tuple[str, str]] = [
-    ("서울틀벽시", "서울특별시"),
-    ("서울특벽시", "서울특별시"),
-    ("서욽특별시", "서울특별시"),
-    ("서울시", "서울특별시"),
-    ("인천시", "인천광역시"),
-    ("인천 광역시", "인천광역시"),
-    ("인천광역시 시 ", "인천광역시 "),
-    ("경기도 도 ", "경기도 "),
-    ("논현도", "논현동"),
-    ("프루지오", "푸르지오"),
-    ("게양대로", "계양대로"),
-]
-
-_extra_typo_replacements: list[tuple[str, str]] = []
-
-
-def set_extra_typo_rules(rules: Iterable[tuple[str, str]] | None) -> None:
-    global _extra_typo_replacements
-    _extra_typo_replacements = [(str(a), str(b)) for a, b in (rules or [])]
-
-
-def load_typo_rules(path: Path) -> list[tuple[str, str]]:
-    """[["프루지오", "푸르지오"], ...] 또는 {"replacements": [...]} 형식의 JSON을 읽는다."""
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if isinstance(data, dict):
-        data = data.get("replacements", [])
-    rules: list[tuple[str, str]] = []
-    for item in data:
-        if not (isinstance(item, (list, tuple)) and len(item) == 2):
-            raise ValueError(
-                f'오타 규칙 형식 오류: {item!r} (예: ["프루지오", "푸르지오"])'
-            )
-        rules.append((str(item[0]), str(item[1])))
-    return rules
-
-
-def typo_fix(value: Any) -> str:
-    s = norm(value)
-    s = re.sub(r"^\d{5}\s+", "", s)
-    for a, b in BASE_TYPO_REPLACEMENTS + _extra_typo_replacements:
-        s = s.replace(a, b)
-    # 시/도 약칭은 문자열 시작에서만 확장한다. 중간 치환은 '시민로' 같은 도로명이나
-    # '서울 빌라' 같은 건물명까지 훼손한다.
-    s = re.sub(r"^서울\s+", "서울특별시 ", s)
-    s = re.sub(r"^인천\s+", "인천광역시 ", s)
-    s = re.sub(r"^경기\s+", "경기도 ", s)
-    s = re.sub(r"인천광역시\s+남구\b", "인천광역시 미추홀구", s)
-    # 산 지번은 '산12-3' 표기로 통일해 지번 파싱과 Juso 지번주소 대조를 일관되게 한다.
-    s = re.sub(r"((?:동|가|리)\s+)산\s+(\d)", r"\1산\2", s)
-    return norm(s)
 
 
 def clean_raw(value: Any) -> str:
