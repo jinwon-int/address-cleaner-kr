@@ -56,6 +56,10 @@ COMMON_INVALID_MARKERS = {
     "없다",
 }
 
+ORPHAN_UNIT_DONG_RE = re.compile(
+    r"(?<![가-힣A-Za-z0-9])동(?=\s*(?:제\s*)?\d{1,4}\s*호\b)"
+)
+
 
 @dataclass(frozen=True)
 class NormalizedAddress:
@@ -81,6 +85,18 @@ def to_addr_str(raw_addr: Any) -> str:
 
 def normalize_spaces(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
+
+
+def normalize_unit_dong(text: Any) -> str:
+    """Normalize building-dong notation immediately before a numbered unit.
+
+    A bare ``동`` has no building identifier, so remove it from forms such as
+    ``동401호``, ``동 401호``, and ``동 제401호``.  Identified building dongs
+    (``101동``, ``A동``) and legal-dong names (``송내동``) are preserved.
+    """
+    value = re.sub(r"동(?=\d{1,4}\s*호\b)", "동 ", str(text))
+    value = ORPHAN_UNIT_DONG_RE.sub("", value)
+    return normalize_spaces(value)
 
 
 def preprocess_raw_address(raw_addr: Any) -> str:
@@ -156,7 +172,7 @@ def preprocess_raw_address(raw_addr: Any) -> str:
         r"\1 \2",
         text,
     )
-    return normalize_spaces(text)
+    return normalize_unit_dong(text)
 
 
 def strip_api_unsafe_tokens(text: str) -> str:
