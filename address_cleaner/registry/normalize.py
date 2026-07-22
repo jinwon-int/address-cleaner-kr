@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from ..normalizer import normalize_unit_dong
 from ..regions import SIDO_RE as REGIONS_SIDO_RE
 
 # 오타 교정 규칙은 일반 정제기(normalizer)와 공유하는 공용 모듈로 옮겨졌다.
@@ -306,20 +307,6 @@ def is_probable_building_dong(token: Any) -> bool:
     if re.fullmatch(r"[가-힣]", x):
         return x in set("가나다라마바사아자차카타파하")
     return x in KOR_DONG_MAP
-
-
-def normalize_unit_dong(text: Any) -> str:
-    """호수 앞 '동' 표기를 정리한다.
-
-    - 'N동NNN호'(붙은 건물동+호수)는 'N동 NNN호'로 띄워 동/호를 각각 잡게 한다.
-      뒤가 '\\d+호'일 때만 띄워 '성수동1가' 같은 법정동은 건드리지 않는다.
-    - 식별자(숫자·문자) 없이 호수 앞에 붙은 외톨이 '동'('동401호', '-동 201호')은
-      잡음이므로 삭제한다. 건물동('101동','A동','가동')·법정동('약대동')은 동 앞에
-      숫자·영문·한글이 있어 룩비하인드로 보존된다.
-    """
-    s = re.sub(r"동(?=\d{1,4}호)", "동 ", str(text))
-    s = re.sub(r"(?<![가-힣A-Za-z0-9])동(?=\s*\d{1,4}\s*호)", "", s)
-    return normalize_spaces(s)
 
 
 def unit_extract(raw: Any, final: Any, lot_addr: str) -> dict[str, str]:

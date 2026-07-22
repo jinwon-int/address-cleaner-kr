@@ -27,6 +27,25 @@ def test_lot_address_keeps_building_detail():
     assert result.searchable
 
 
+def test_lot_address_removes_orphan_dong_before_unit():
+    cases = [
+        ("동402호", "402호"),
+        ("동 402호", "402호"),
+        ("동 제402호", "제402호"),
+    ]
+    for unit, expected_unit in cases:
+        result = normalize_for_search(f"경기도 부천시 소사구 송내동 572-5 {unit}")
+
+        assert result.query == f"경기도 부천시 소사구 송내동 572-5 {expected_unit}"
+
+
+def test_lot_address_keeps_identified_and_legal_dong():
+    for unit in ["101동 402호", "A동 402호"]:
+        result = normalize_for_search(f"경기도 부천시 소사구 송내동 572-5 {unit}")
+
+        assert result.query == f"경기도 부천시 소사구 송내동 572-5 {unit}"
+
+
 def test_lot_address_removes_extra_lot_marker():
     result = normalize_for_search(
         "경기도 파주시 동패동 7외 1필지 노블타운 제102동 제4층 제401호"
