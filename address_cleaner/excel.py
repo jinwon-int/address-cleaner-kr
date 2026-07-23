@@ -87,6 +87,7 @@ def process_workbook(
     history: VerifyHistory | None = None,
     corrections_path: str | Path | None = None,
     workers: int = DEFAULT_WORKERS,
+    rewrite_working_query: bool = True,
 ) -> dict[str, int]:
     """엑셀을 정제·검증한다. openpyxl 워크시트는 스레드 안전하지 않으므로
     셀 접근과 SQLite 이력 접근은 메인 스레드로 한정하는 2패스 구조다.
@@ -133,6 +134,7 @@ def process_workbook(
         "total": 0,
         "road": 0,
         "lot": 0,
+        "building": 0,
         "empty": 0,
         "invalid": 0,
         "missing": 0,
@@ -141,6 +143,7 @@ def process_workbook(
         "history_reused": 0,
         "verdict_changed": 0,
         "correction_candidates": 0,
+        "query_rewritten": 0,
     }
     start_row = 2 if header else 1
     # 같은 원주소가 여러 행에 반복되는 파일이 흔해서 검증 결과를 재사용한다.
@@ -262,6 +265,18 @@ def process_workbook(
             status = ""
             if verification == "verified":
                 stats["verified"] += 1
+                if (
+                    rewrite_working_query
+                    and correction is not None
+                    and correction.get("type") == "상세부제거"
+                    and correction.get("working")
+                ):
+                    # 상세 포함 검색은 0건이고 골격만 1건으로 확정된 행:
+                    # 후단 자동화(주소찾기 팝업)는 골격 재시도를 못 하므로,
+                    # 실패가 확정된 상세 검색어 대신 통한 골격을 기록한다.
+                    ws.cell(row=row, column=target_idx).value = correction["working"]
+                    stats["query_rewritten"] += 1
+                    verify_detail += "; 검색어를 골격으로 교체"
             elif verification == "ambiguous":
                 status = STATUS_AMBIGUOUS
                 stats["ambiguous"] += 1

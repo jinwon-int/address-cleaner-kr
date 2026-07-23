@@ -78,6 +78,11 @@ def main(argv: list[str] | None = None) -> int:
         default=8,
         help="API 검증 병렬 워커 수 (기본 8, 1이면 직렬). 초당 호출은 자동으로 제한됩니다.",
     )
+    p_excel.add_argument(
+        "--keep-detail-query",
+        action="store_true",
+        help="상세 포함 0건→골격 1건으로 확정돼도 검색어를 골격으로 바꾸지 않고 상세 포함 검색어를 유지",
+    )
 
     p_feedback = sub.add_parser(
         "feedback", help="파워쉘 처리결과 엑셀의 실패 행을 모아 재정제 리포트 생성"
@@ -127,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
                 if args.corrections_out
                 else None,
                 workers=args.workers,
+                rewrite_working_query=not args.keep_detail_query,
             )
         except (RuntimeError, ValueError, OSError) as exc:
             print(f"error: {exc}", file=sys.stderr)
