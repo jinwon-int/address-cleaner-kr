@@ -35,7 +35,15 @@ testpaths = ["tests"]
 
 [tool.ruff]
 # legacy/는 참고용으로 보존하는 원본 스크립트라 린트 대상에서 제외한다.
-extend-exclude = ["legacy"]
+# Ruff 0.16부터 Markdown 코드 블록도 기본 포맷 대상이므로, 기존 Python-only
+# 포맷 범위를 유지하고 문서 포맷 변경은 별도 PR에서 다룬다.
+extend-exclude = ["legacy", "*.md"]
+
+[tool.ruff.lint]
+# Ruff 0.16 expanded its implicit default from 59 to 413 rules. Keep the
+# repository's established baseline explicit so tool upgrades do not silently
+# redefine policy; broader rule adoption should happen in a dedicated PR.
+select = ["E4", "E7", "E9", "F"]
 
 [tool.mypy]
 # legacy/는 packages 지정으로 자연히 제외된다.
