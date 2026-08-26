@@ -188,6 +188,14 @@ def test_unit_dedup_does_not_confuse_legal_dong_names_or_embedded_tokens():
     assert normalize_unit_dong(raw) == raw
 
 
+def test_unit_dedup_removes_parentheses_left_empty_by_duplicate():
+    result = normalize_for_search(
+        "서울특별시 샘플구 테스트동 123-4 샘플빌라 101호 (101호)"
+    )
+
+    assert result.query == "서울특별시 샘플구 테스트동 123-4 샘플빌라 101호"
+
+
 def test_bare_unit_then_identified_unit_keeps_identified_form():
     result = normalize_for_search(
         "서울 영등포구 버드나루로 9, 604호 (영등포동2가) 1동 604호"

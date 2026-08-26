@@ -191,7 +191,10 @@ def _dedupe_unit_tokens(text: str) -> str:
         seen.add(key)
         return match.group(0)
 
-    return normalize_spaces(UNIT_TOKEN_RE.sub(keep_first, text))
+    deduped = UNIT_TOKEN_RE.sub(keep_first, text)
+    # 중복 토큰이 괄호의 유일한 내용이면 빈 ``( )``를 검색어에 남기지 않는다.
+    deduped = re.sub(r"\(\s*\)", " ", deduped)
+    return normalize_spaces(deduped)
 
 
 def normalize_unit_dong(text: Any) -> str:
