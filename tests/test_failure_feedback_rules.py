@@ -8,7 +8,11 @@ import openpyxl
 
 from address_cleaner.clients import SearchResult
 from address_cleaner.excel import _verify, process_workbook
-from address_cleaner.normalizer import base_for_search, normalize_for_search
+from address_cleaner.normalizer import (
+    base_for_search,
+    normalize_for_search,
+    normalize_unit_dong,
+)
 
 
 def test_road_bungil_number_stays_glued_to_road_name():
@@ -135,6 +139,61 @@ def test_duplicated_unit_phrases_are_collapsed():
         "인천 미추홀구 숭의동 352-21 제비동 402호 (숭의동, 한마음아파트) 제비동동402호"
     )
     assert result.query == "인천 미추홀구 숭의동 352-21 제비동 402호 한마음아파트"
+
+
+def test_equivalent_dong_and_ho_variants_are_kept_once():
+    result = normalize_for_search(
+        "서울특별시 샘플구 테스트동 123-4 샘플빌라 제101동 제402호 별관 101동 402호"
+    )
+
+    assert result.query == (
+        "서울특별시 샘플구 테스트동 123-4 샘플빌라 제101동 제402호 별관"
+    )
+    assert result.kind == "lot"
+
+
+def test_letter_and_zero_padded_unit_variants_are_kept_once():
+    cases = [
+        (
+            "에이동 B01호 A동 B1호",
+            "에이동 B01호",
+        ),
+        (
+            "비동 b01호 B동 B1호",
+            "비동 b01호",
+        ),
+    ]
+    for units, expected_units in cases:
+        result = normalize_for_search(
+            f"서울특별시 샘플구 테스트동 123-4 샘플빌라 {units}"
+        )
+
+        assert result.query == (
+            f"서울특별시 샘플구 테스트동 123-4 샘플빌라 {expected_units}"
+        )
+
+
+def test_repeated_standalone_legal_dong_is_kept_once():
+    result = normalize_for_search(
+        "서울특별시 샘플구 테스트동 테스트동 123-4 샘플빌라 101호"
+    )
+
+    assert result.query == "서울특별시 샘플구 테스트동 123-4 샘플빌라 101호"
+    assert result.kind == "lot"
+
+
+def test_unit_dedup_does_not_confuse_legal_dong_names_or_embedded_tokens():
+    raw = "제기동 기동 영등포동2가 테스트동아파트 101호"
+
+    assert normalize_unit_dong(raw) == raw
+
+
+def test_unit_dedup_removes_parentheses_left_empty_by_duplicate():
+    result = normalize_for_search(
+        "서울특별시 샘플구 테스트동 123-4 샘플빌라 101호 (101호)"
+    )
+
+    assert result.query == "서울특별시 샘플구 테스트동 123-4 샘플빌라 101호"
 
 
 def test_bare_unit_then_identified_unit_keeps_identified_form():

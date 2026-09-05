@@ -92,6 +92,33 @@ COMMON_INVALID_MARKERS = {
 ORPHAN_UNIT_DONG_RE = re.compile(
     r"(?<![가-힣A-Za-z0-9])동(?=\s*(?:제\s*)?\d{1,4}\s*호\b)"
 )
+# 원주소와 별도 동·호 열을 합치는 과정에서 이미 있던 상세가 다시 붙는 경우를
+# 정리한다. 토큰 내부(영등포동2가, 테스트동아파트)는 건드리지 않고, 공백으로
+# 분리된 동·호 표기만 대상으로 한다.
+UNIT_TOKEN_RE = re.compile(
+    r"(?<![가-힣A-Za-z0-9])(?:제\s*)?[A-Za-z가-힣0-9-]{1,12}\s*동"
+    r"(?![가-힣A-Za-z0-9])"
+    r"|(?<![가-힣A-Za-z0-9])(?:제\s*)?[A-Za-z가-힣-]{0,8}\d{1,5}\s*호"
+    r"(?![가-힣A-Za-z0-9])"
+)
+UNIT_LETTER_NAMES = {"에이": "A", "비": "B", "씨": "C", "디": "D"}
+BUILDING_DONG_MARKERS = {
+    "가",
+    "나",
+    "다",
+    "라",
+    "마",
+    "바",
+    "사",
+    "아",
+    "자",
+    "차",
+    "카",
+    "타",
+    "파",
+    "하",
+    *UNIT_LETTER_NAMES,
+}
 
 
 @dataclass(frozen=True)
@@ -120,6 +147,56 @@ def normalize_spaces(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _canonical_unit_key(token: str) -> str:
+    """Return a comparison key without changing the first emitted spelling."""
+    compact = re.sub(r"\s+", "", token)
+    suffix, body = compact[-1], compact[:-1]
+
+    # '제101동/101동', '제비동/비동'은 같지만 법정동 '제기동/기동'은
+    # 서로 다른 이름이므로 '제'를 무조건 떼지 않는다.
+    if body.startswith("제"):
+        remainder = body[1:]
+        if suffix == "호" or (
+            remainder
+            and (
+                remainder[0].isdigit()
+                or remainder.upper() in {"A", "B", "C", "D"}
+                or remainder in BUILDING_DONG_MARKERS
+            )
+        ):
+            body = remainder
+
+    for korean, latin in UNIT_LETTER_NAMES.items():
+        if body == korean or (
+            body.startswith(korean) and body[len(korean) :].isdigit()
+        ):
+            body = latin + body[len(korean) :]
+            break
+
+    body = body.upper()
+    numbered = re.fullmatch(r"([A-Z가-힣-]*)(\d+)", body)
+    if numbered:
+        body = numbered.group(1) + str(int(numbered.group(2)))
+    return body + suffix
+
+
+def _dedupe_unit_tokens(text: str) -> str:
+    """Keep only the first canonically equal standalone dong/ho token."""
+    seen: set[str] = set()
+
+    def keep_first(match: re.Match[str]) -> str:
+        key = _canonical_unit_key(match.group(0))
+        if key in seen:
+            return " "
+        seen.add(key)
+        return match.group(0)
+
+    deduped = UNIT_TOKEN_RE.sub(keep_first, text)
+    # 중복 토큰이 괄호의 유일한 내용이면 빈 ``( )``를 검색어에 남기지 않는다.
+    deduped = re.sub(r"\(\s*\)", " ", deduped)
+    return normalize_spaces(deduped)
+
+
 def normalize_unit_dong(text: Any) -> str:
     """Normalize building-dong notation immediately before a numbered unit.
 
@@ -146,7 +223,7 @@ def normalize_unit_dong(text: Any) -> str:
     )
     # '604호 1동 604호'처럼 같은 호가 동 식별과 함께 반복되면 식별 표기만 남긴다.
     value = re.sub(r"(\S*\d{1,4}호)\s+((?:제\s*)?\S*동)\s+\1(?=\s|$)", r"\2 \1", value)
-    return normalize_spaces(value)
+    return _dedupe_unit_tokens(value)
 
 
 def _strip_legal_description(text: str) -> str:
