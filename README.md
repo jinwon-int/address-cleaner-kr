@@ -83,7 +83,9 @@ export EPOST_SERVICE_KEY='...'
 address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --status-col M --mark-missing
 ```
 
-Juso 키는 모든 모드에서 `JUSO_CONFIRM_KEY`, `JUSO_CONFM_KEY`, `JUSO_API_KEY` 어느 이름으로 설정해도 인식합니다.
+Juso 키는 모든 모드에서 `JUSO_CONFIRM_KEY`, `JUSO_CONFM_KEY`, `JUSO_API_KEY` 어느 이름으로 설정해도 인식합니다. ePost 키는 공공데이터포털이 주는 Encoding·Decoding 키 어느 쪽을 넣어도 됩니다(퍼센트 인코딩된 키는 요청 전에 자동으로 되돌려, 이중 인코딩으로 인증이 실패하지 않게 합니다).
+
+`--status-col`만 주고 `--mark-missing`을 빠뜨리면 API 키가 있어도 로컬 정제 판정만 기록되므로 경고를 남깁니다. 오류 원인을 자세히 보려면 `--debug`(전체 traceback)를 붙입니다.
 
 특정 API만 검증할 수도 있습니다 (`--provider juso|epost|both|none`).
 

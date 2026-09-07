@@ -457,6 +457,31 @@ def test_preprocess_cuts_repeated_legacy_sido_names():
     )
 
 
+def test_building_name_containing_sido_name_does_not_cut_the_address():
+    """'서울특별시청'은 주소 반복이 아니라 건물명이므로 앞 주소를 자르지 않는다."""
+    cases = [
+        "서울특별시 중구 세종대로 110 서울특별시청",
+        "경기도 수원시 팔달구 효원로 1 경기도청",
+        "서울특별시 노원구 상계동 771 서울특별시립 청소년센터",
+    ]
+    for source in cases:
+        result = normalize_for_search(source)
+
+        assert result.query == source
+        assert result.searchable
+
+
+def test_institution_name_keeps_sido_prefix_attached():
+    """붙은 행정구역 복원 규칙이 '시청'·'시립'을 '시 청'·'시 립'으로 가르지 않는다."""
+    assert preprocess_raw_address("서울특별시청") == "서울특별시청"
+    assert preprocess_raw_address("서울특별시립미술관") == "서울특별시립미술관"
+    # 원래 목적(붙어 있는 시/도 + 시군구 복원)은 그대로 동작해야 한다.
+    assert (
+        preprocess_raw_address("서울특별시강남구 역삼동 736-32")
+        == "서울특별시 강남구 역삼동 736-32"
+    )
+
+
 def test_road_address_without_district_is_searchable():
     result = normalize_for_search("테헤란로 152 강남파이낸스센터 10층")
     assert result.kind == "road"

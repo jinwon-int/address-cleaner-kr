@@ -2,13 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+import re
 import time
 import xml.etree.ElementTree as ET
 from typing import Any
+from urllib.parse import unquote
 
 import requests
 
 JUSO_ENDPOINT = "https://business.juso.go.kr/addrlink/addrLinkApi.do"
+
+# 두 클라이언트와 request_juso가 공유하는 타임아웃. 이전에는 클라이언트만 5초라
+# 등기 모드(15초)와 달리 일반 excel 모드에서만 transport error가 잦았다.
+DEFAULT_TIMEOUT = 15.0
 
 # 일반 정제 모드와 등기소 모드가 서로 다른 이름을 써 왔어서 둘 다 허용한다.
 JUSO_KEY_ENV_VARS = ("JUSO_CONFIRM_KEY", "JUSO_CONFM_KEY", "JUSO_API_KEY", "CONFM_KEY")
@@ -28,7 +34,7 @@ def request_juso(
     keyword: str,
     count: int = 10,
     *,
-    timeout: float = 15.0,
+    timeout: float = DEFAULT_TIMEOUT,
     session: requests.Session | None = None,
     retries: int = 3,
 ) -> dict[str, Any]:
@@ -91,7 +97,7 @@ class JusoClient:
     def __init__(
         self,
         key: str | None = None,
-        timeout: float = 5.0,
+        timeout: float = DEFAULT_TIMEOUT,
         session: requests.Session | None = None,
     ):
         self.key = key or juso_key_from_env()
@@ -130,16 +136,31 @@ EPOST_DEFAULT_ENDPOINT = (
 )
 
 
+PERCENT_ESCAPE_RE = re.compile(r"%[0-9A-Fa-f]{2}")
+
+
+def decode_service_key(key: str | None) -> str | None:
+    """공공데이터포털 '인코딩' 서비스키를 원래 값으로 되돌린다.
+
+    포털은 같은 키를 Encoding(`…%2Bab%2F`)과 Decoding(`…+ab/`) 두 벌로 준다.
+    인코딩된 쪽을 그대로 넘기면 requests가 `%`를 다시 `%25`로 인코딩해
+    SERVICE_KEY_IS_NOT_REGISTERED_ERROR가 나므로, 넣기 전에 한 번 푼다.
+    """
+    if key and PERCENT_ESCAPE_RE.search(key):
+        return unquote(key)
+    return key
+
+
 class KoreaPostRoadNameClient:
     def __init__(
         self,
         key: str | None = None,
-        timeout: float = 5.0,
+        timeout: float = DEFAULT_TIMEOUT,
         session: requests.Session | None = None,
     ):
         # 클래스 속성이 아니라 생성 시점에 읽어 import 시점 고정을 피한다.
         self.endpoint = os.getenv("EPOST_ENDPOINT") or EPOST_DEFAULT_ENDPOINT
-        self.key = (
+        self.key = decode_service_key(
             next(
                 (os.getenv(name) for name in EPOST_KEY_ENV_VARS if os.getenv(name)),
                 None,

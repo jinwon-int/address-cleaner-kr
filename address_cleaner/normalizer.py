@@ -8,6 +8,13 @@ from .regions import ALL_SIDO_NAMES
 from .typo import apply_typo_replacements
 
 
+# 원주소 반복('… 역삼동 736-32 서울특별시 강남구 역삼동 736-32') 감지용.
+# 단순 부분문자열 카운트는 '서울특별시청'·'경기도청'처럼 시/도명을 품은 건물명까지
+# 반복으로 오인해 앞의 진짜 주소를 통째로 잘라내므로, 토큰 경계에서만 센다.
+SIDO_REPEAT_RES = [
+    re.compile(rf"(?<![가-힣]){re.escape(name)}(?=\s|$)") for name in ALL_SIDO_NAMES
+]
+
 PAREN_CONTENT_RE = re.compile(r"\([^)]*\)")
 ZIPCODE_RE = re.compile(r"^\s*\d{5}\s+")
 ET_AL_RE = re.compile(r"외\s*\d+\s*(필지|건|목록|세대)")
@@ -270,11 +277,12 @@ def preprocess_raw_address(raw_addr: Any) -> str:
     # 정리 단계)에서 적용해, ROAD/LOT 골격 매칭 전에 오타가 교정되게 한다.
     text = apply_typo_replacements(text)
 
+    # 원주소가 통째로 두 번 적힌 경우 뒤쪽 한 벌만 남긴다.
     # 시/도 명칭은 regions.py가 단일 출처다 (구명칭 포함).
-    sido_keywords = ALL_SIDO_NAMES
-    for sido in sido_keywords:
-        if text.count(sido) >= 2:
-            text = text[text.rfind(sido) :]
+    for pattern in SIDO_REPEAT_RES:
+        starts = [match.start() for match in pattern.finditer(text)]
+        if len(starts) >= 2:
+            text = text[starts[-1] :]
             break
 
     chars: list[str] = []
@@ -320,14 +328,18 @@ def preprocess_raw_address(raw_addr: Any) -> str:
     text = re.sub(r"(?<=[0-9])[ㅏ-ㅣ]+", "", text)  # '제1ㅣ동' 같은 모음 자모 잔재
 
     # Common missing-space repairs from the legacy script.
-    text = re.sub(r"(특별시|광역시|특별자치시|특별자치도)(?=[가-힣])", r"\1 ", text)
+    # '서울특별시강남구' → '서울특별시 강남구'. 다만 '서울특별시청'·'서울특별시립'은
+    # 시/도명이 아니라 기관 이름의 일부이므로 가르지 않는다.
+    text = re.sub(
+        r"(특별시|광역시|특별자치시|특별자치도)(?![청립])(?=[가-힣])", r"\1 ", text
+    )
     text = re.sub(
         r"^(인천|서울|경기|부산|대구|광주|대전|울산|세종|경북|경남|충북|충남|전북|전남|강원|제주)"
         r"(?!특별|광역|도)(?=[가-힣])",
         r"\1 ",
         text,
     )
-    text = re.sub(r"^([가-힣]+도)(?=[가-힣])", r"\1 ", text)
+    text = re.sub(r"^([가-힣]+도)(?![청립])(?=[가-힣])", r"\1 ", text)
     head, tail = text[:80], text[80:]
     head = re.sub(r"([가-힣]{2,}시)([가-힣]{2,}구)(?=[가-힣\s]|$)", r"\1 \2", head)
     # 붙은 행정구역 복원. 리/로/길은 뒤에 한글이 이어지면 '하이파크시티일산

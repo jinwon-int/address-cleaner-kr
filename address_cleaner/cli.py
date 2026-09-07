@@ -79,6 +79,9 @@ def main(argv: list[str] | None = None) -> int:
         help="API 검증 병렬 워커 수 (기본 8, 1이면 직렬). 초당 호출은 자동으로 제한됩니다.",
     )
     p_excel.add_argument(
+        "--debug", action="store_true", help="오류 시 전체 traceback 출력"
+    )
+    p_excel.add_argument(
         "--keep-detail-query",
         action="store_true",
         help="상세 포함 0건→골격 1건으로 확정돼도 검색어를 골격으로 바꾸지 않고 상세 포함 검색어를 유지",
@@ -95,6 +98,9 @@ def main(argv: list[str] | None = None) -> int:
     p_feedback.add_argument("--target-col", default="I")
     p_feedback.add_argument("--result-col", default="M")
     p_feedback.add_argument("--ps-detail-col", default="N")
+    p_feedback.add_argument(
+        "--debug", action="store_true", help="오류 시 전체 traceback 출력"
+    )
 
     p_probe = sub.add_parser("probe", help="Probe configured API key with one query")
     p_probe.add_argument("provider", choices=["juso", "epost"])
@@ -135,6 +141,8 @@ def main(argv: list[str] | None = None) -> int:
                 rewrite_working_query=not args.keep_detail_query,
             )
         except (RuntimeError, ValueError, OSError) as exc:
+            if args.debug:
+                raise
             print(f"error: {exc}", file=sys.stderr)
             return 2
         finally:
@@ -152,6 +160,8 @@ def main(argv: list[str] | None = None) -> int:
                 ps_detail_col=args.ps_detail_col,
             )
         except (RuntimeError, ValueError, OSError) as exc:
+            if args.debug:
+                raise
             print(f"error: {exc}", file=sys.stderr)
             return 2
         text = json.dumps(report, ensure_ascii=False, indent=2)

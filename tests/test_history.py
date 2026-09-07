@@ -77,3 +77,17 @@ def test_latest_returns_newest_record_for_verdict_change_detection(tmp_path):
     assert entry is not None
     assert entry.verdict == "missing"
     assert entry.checked_at.startswith("2026-06-10")
+
+
+def test_latest_breaks_ties_by_insertion_order(tmp_path):
+    """checked_at은 초 단위라 같은 초에 두 번 기록될 수 있다 — 나중 것이 최신."""
+    history = VerifyHistory(tmp_path / "history.sqlite")
+    same_second = "2026-01-01T00:00:00"
+    history.record(QUERY, "lot", "missing", "먼저", checked_at=same_second)
+    history.record(QUERY, "lot", "verified", "나중", checked_at=same_second)
+
+    entry = history.latest(QUERY, "lot")
+    history.close()
+
+    assert entry is not None
+    assert (entry.verdict, entry.detail) == ("verified", "나중")

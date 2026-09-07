@@ -338,7 +338,6 @@ def refine(
     # 등기소 전체검색어 생성.
     final_counter: Counter[str] = Counter()
     reason_counter: Counter[str] = Counter()
-    records: list[tuple[int, list[Any]]] = []
     for r in range(2, ws.max_row + 1):
         raw = get_cell(ws, r, headers, "대상 임대차계약 주소")
         final = source_addr(r)
@@ -439,13 +438,6 @@ def refine(
         final_counter[result] += 1
         for reason in reasons:
             reason_counter[reason] += 1
-        records.append(
-            (
-                r,
-                registry_values
-                + [phrase, " / ".join(aux), whole_status, phrase, result],
-            )
-        )
 
     # 검토용 시트.
     review_cols = [

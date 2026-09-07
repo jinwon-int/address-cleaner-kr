@@ -6,6 +6,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 from typing import Any, Literal
+import warnings
 
 import openpyxl
 import requests
@@ -35,6 +36,9 @@ LOCAL_STATUS_KO = {
 # 레이트리미터가 초당 호출 수를 MAX_REQ_PER_SEC 이하로 묶는다.
 DEFAULT_WORKERS = 8
 MAX_REQ_PER_SEC = 10.0
+
+# xlsx 스펙상 마지막 열(XFD). 넘어가면 openpyxl이 저장 시점에 터진다.
+MAX_EXCEL_COLUMN = 16384
 
 # (판정, 사람이 읽을 검증 상세, 교정 후보)
 VerifyOutcome = tuple[str, str, "dict[str, str] | None"]
@@ -70,7 +74,29 @@ def col_to_index(col: str) -> int:
         if not ("A" <= ch <= "Z"):
             raise ValueError(f"Invalid Excel column: {col}")
         value = value * 26 + ord(ch) - ord("A") + 1
+    if value > MAX_EXCEL_COLUMN:
+        # 범위를 넘기면 openpyxl이 저장 시점에 알아보기 어려운 예외를 낸다.
+        raise ValueError(
+            f"Invalid Excel column: {col} (최대 XFD, {MAX_EXCEL_COLUMN}열)"
+        )
     return value
+
+
+def _reject_duplicate_columns(
+    columns: list[tuple[str, str | None, int | None]],
+) -> None:
+    """같은 엑셀 열에 두 가지 용도를 지정했으면 RuntimeError."""
+    seen: dict[int, str] = {}
+    for option, name, index in columns:
+        if index is None:
+            continue
+        previous = seen.get(index)
+        if previous is not None:
+            raise RuntimeError(
+                f"같은 열을 두 번 지정했습니다: {previous}와 {option} 모두 "
+                f"{(name or '').strip().upper()}열"
+            )
+        seen[index] = option
 
 
 def process_workbook(
@@ -105,6 +131,15 @@ def process_workbook(
     detail_idx = col_to_index(detail_col) if detail_col else None
     if detail_idx and not status_idx:
         raise RuntimeError("--detail-col requires --status-col")
+    # 같은 열을 두 번 지정하면 원주소가 검색어로 덮여 산출물에서 사라진다.
+    _reject_duplicate_columns(
+        [
+            ("--source-col", source_col, source_idx),
+            ("--target-col", target_col, target_idx),
+            ("--status-col", status_col, status_idx),
+            ("--detail-col", detail_col, detail_idx),
+        ]
+    )
 
     if header:
         ws.cell(row=1, column=target_idx).value = "주소검색어"
@@ -122,6 +157,14 @@ def process_workbook(
     if mark_missing and provider != "none" and juso is None and epost is None:
         raise RuntimeError(
             "At least one API key is required when --mark-missing validates provider results"
+        )
+    if status_idx and not mark_missing and (juso is not None or epost is not None):
+        # API 키가 있는데 --mark-missing을 빠뜨린 실행은 로컬 판정만 하고도
+        # "전부 정상"처럼 보인다. 조용히 넘기지 않고 경고를 남긴다.
+        warnings.warn(
+            "API 키가 있지만 --mark-missing이 꺼져 있어 API 검증을 건너뜁니다 "
+            "(상태 열에는 로컬 정제 판정만 기록됩니다)",
+            stacklevel=2,
         )
     # 커넥션 재사용을 위한 공유 Session (등기 모드와 동일 패턴 — Session은 스레드 안전).
     session = requests.Session()
@@ -405,6 +448,7 @@ def verify_address(
     *,
     juso: JusoClient | None = None,
     epost: KoreaPostRoadNameClient | None = None,
+    session: requests.Session | None = None,
 ) -> VerifyResult:
     """주소 검색어 1건을 juso.go.kr/우체국 API로 검증한다 (엑셀 없이 사용 가능).
 
@@ -412,14 +456,17 @@ def verify_address(
     "road"|"lot")를 그대로 넘기면 된다. 클라이언트를 넘기지 않으면 환경변수 키로
     기본 클라이언트를 만들며, 사용 가능한 provider가 하나도 없으면 RuntimeError.
 
+    여러 건을 반복 검증할 때는 requests.Session을 만들어 ``session=``으로 넘기면
+    커넥션이 재사용된다 (클라이언트를 직접 넘긴 경우엔 그쪽 설정을 따른다).
+
     >>> normalized = normalize_for_search("경기도 파주시 야당동 57-17 ...")
     >>> result = verify_address(normalized.query, normalized.kind)
     >>> result.verdict
     'verified'
     """
     if juso is None and epost is None:
-        juso = JusoClient()
-        epost = KoreaPostRoadNameClient()
+        juso = JusoClient(session=session)
+        epost = KoreaPostRoadNameClient(session=session)
         if not juso.key:
             juso = None
         if not epost.key:
