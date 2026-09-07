@@ -48,6 +48,26 @@ def test_detail_col_requires_status_col(tmp_path):
         )
 
 
+@pytest.mark.parametrize(
+    "columns",
+    [
+        {"source_col": "H", "target_col": "H"},
+        {"source_col": "H", "target_col": "I", "status_col": "h"},
+        {"source_col": "H", "target_col": "I", "status_col": "M", "detail_col": "M"},
+    ],
+)
+def test_duplicate_columns_are_rejected(tmp_path, columns):
+    """같은 열을 두 번 지정하면 원주소가 덮이므로 실행 전에 막는다."""
+    input_path = tmp_path / "input.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active["H1"] = "원주소"
+    wb.active["H2"] = "경기도 파주시 야당동 57-17"
+    wb.save(input_path)
+
+    with pytest.raises(RuntimeError, match="같은 열을 두 번 지정"):
+        process_workbook(input_path, tmp_path / "out.xlsx", provider="none", **columns)
+
+
 # --- provider=none 라운드트립 규약 ---
 
 

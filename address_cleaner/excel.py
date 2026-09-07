@@ -73,6 +73,23 @@ def col_to_index(col: str) -> int:
     return value
 
 
+def _reject_duplicate_columns(
+    columns: list[tuple[str, str | None, int | None]],
+) -> None:
+    """같은 엑셀 열에 두 가지 용도를 지정했으면 RuntimeError."""
+    seen: dict[int, str] = {}
+    for option, name, index in columns:
+        if index is None:
+            continue
+        previous = seen.get(index)
+        if previous is not None:
+            raise RuntimeError(
+                f"같은 열을 두 번 지정했습니다: {previous}와 {option} 모두 "
+                f"{(name or '').strip().upper()}열"
+            )
+        seen[index] = option
+
+
 def process_workbook(
     input_path: str | Path,
     output_path: str | Path,
@@ -105,6 +122,15 @@ def process_workbook(
     detail_idx = col_to_index(detail_col) if detail_col else None
     if detail_idx and not status_idx:
         raise RuntimeError("--detail-col requires --status-col")
+    # 같은 열을 두 번 지정하면 원주소가 검색어로 덮여 산출물에서 사라진다.
+    _reject_duplicate_columns(
+        [
+            ("--source-col", source_col, source_idx),
+            ("--target-col", target_col, target_idx),
+            ("--status-col", status_col, status_idx),
+            ("--detail-col", detail_col, detail_idx),
+        ]
+    )
 
     if header:
         ws.cell(row=1, column=target_idx).value = "주소검색어"
