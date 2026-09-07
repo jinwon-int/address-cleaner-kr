@@ -35,9 +35,11 @@ class VerifyHistory:
         self.conn.commit()
 
     def latest(self, query: str, kind: str) -> HistoryEntry | None:
+        # checked_at은 초 단위라 같은 초에 두 번 기록될 수 있다. rowid로 동률을
+        # 깨서 "가장 최근" 정의가 SQLite 구현에 좌우되지 않게 한다.
         row = self.conn.execute(
             "SELECT verdict, detail, checked_at FROM verify_history "
-            "WHERE query = ? AND kind = ? ORDER BY checked_at DESC LIMIT 1",
+            "WHERE query = ? AND kind = ? ORDER BY checked_at DESC, rowid DESC LIMIT 1",
             (query, kind),
         ).fetchone()
         return HistoryEntry(*row) if row else None

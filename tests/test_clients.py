@@ -329,3 +329,38 @@ def test_epost_raises_after_retries_exhausted(monkeypatch):
 
     with pytest.raises(Exception):
         KoreaPostRoadNameClient(key="key").search("하우3길 22", retries=1)
+
+
+def test_epost_percent_encoded_service_key_is_decoded(monkeypatch):
+    """공공데이터포털 '인코딩' 키를 그대로 쓰면 requests가 %를 %25로 이중 인코딩한다."""
+    seen = {}
+
+    def capture_get(url, params=None, timeout=None):
+        seen["key"] = params["ServiceKey"]
+        return _Response(text=EPOST_OK_XML)
+
+    monkeypatch.setattr(clients.requests, "get", capture_get)
+
+    KoreaPostRoadNameClient(key="ab%2Bcd%2Fef%3D%3D").search("하우3길 22")
+
+    assert seen["key"] == "ab+cd/ef=="
+
+
+def test_epost_plain_service_key_is_left_untouched(monkeypatch):
+    seen = {}
+
+    def capture_get(url, params=None, timeout=None):
+        seen["key"] = params["ServiceKey"]
+        return _Response(text=EPOST_OK_XML)
+
+    monkeypatch.setattr(clients.requests, "get", capture_get)
+
+    KoreaPostRoadNameClient(key="ab+cd/ef==").search("하우3길 22")
+
+    assert seen["key"] == "ab+cd/ef=="
+
+
+def test_clients_share_one_default_timeout():
+    """일반 excel 모드만 5초로 짧아 transport error가 몰리던 것을 맞춘 규약."""
+    assert JusoClient(key="k").timeout == clients.DEFAULT_TIMEOUT
+    assert KoreaPostRoadNameClient(key="k").timeout == clients.DEFAULT_TIMEOUT

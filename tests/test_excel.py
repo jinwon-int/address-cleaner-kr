@@ -29,6 +29,16 @@ def test_col_to_index_rejects_non_alpha(col):
         col_to_index(col)
 
 
+def test_col_to_index_rejects_columns_past_the_xlsx_limit():
+    """XFD(16384)까지가 xlsx의 마지막 열 — 넘기면 저장 시점에야 깨진다."""
+    assert col_to_index("XFD") == 16384
+
+    with pytest.raises(ValueError, match="16384"):
+        col_to_index("XFE")
+    with pytest.raises(ValueError, match="16384"):
+        col_to_index("ZZZZZ")
+
+
 # --- 옵션 조합 ---
 
 
@@ -129,3 +139,23 @@ def test_header_false_processes_first_row(tmp_path):
     ws = openpyxl.load_workbook(tmp_path / "out.xlsx").active
     assert ws["I1"].value == "경기도 파주시 야당동 57-17"
     assert stats["total"] == 1
+
+
+def test_api_key_without_mark_missing_warns(tmp_path, monkeypatch):
+    """키가 있는데 --mark-missing을 빠뜨리면 로컬 판정만 하고도 '전부 정상'처럼 보인다."""
+    monkeypatch.setenv("JUSO_CONFIRM_KEY", "test-key")
+    input_path = tmp_path / "input.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active["H1"] = "원주소"
+    wb.active["H2"] = "경기도 파주시 야당동 57-17"
+    wb.save(input_path)
+
+    with pytest.warns(UserWarning, match="--mark-missing"):
+        process_workbook(
+            input_path,
+            tmp_path / "out.xlsx",
+            source_col="H",
+            target_col="I",
+            status_col="M",
+            provider="juso",
+        )
