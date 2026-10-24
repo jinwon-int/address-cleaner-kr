@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 from address_cleaner.history import VerifyHistory
 
-QUERY = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+QUERY = "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호"
 
 
 def test_record_then_latest_roundtrip(tmp_path):

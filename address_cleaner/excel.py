@@ -459,7 +459,7 @@ def verify_address(
     여러 건을 반복 검증할 때는 requests.Session을 만들어 ``session=``으로 넘기면
     커넥션이 재사용된다 (클라이언트를 직접 넘긴 경우엔 그쪽 설정을 따른다).
 
-    >>> normalized = normalize_for_search("경기도 파주시 야당동 57-17 ...")
+    >>> normalized = normalize_for_search("경기도 파주시 테스트동 12-34 ...")
     >>> result = verify_address(normalized.query, normalized.kind)
     >>> result.verdict
     'verified'
@@ -541,7 +541,7 @@ def _verify(
                     }
                 break
         results.append(result)
-        # 골격까지 0건인 지번주소는 붙여 쓴 지번(5717→57-17) 변형으로 후보를 찾아
+        # 골격까지 0건인 지번주소는 붙여 쓴 지번(1234→12-34) 변형으로 후보를 찾아
         # 사람이 보완할 수 있게 제안만 남긴다. 주소를 자동으로 바꾸지는 않는다.
         if not result.has_error and result.total_count == 0 and kind == "lot":
             for variant in lot_variants(base or query)[:3]:

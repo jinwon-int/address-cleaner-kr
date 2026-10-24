@@ -15,7 +15,7 @@
 
 - 원주소에서 우편번호, `외 N필지/세대`, 반복 주소·동/호, 괄호 동명 주석, `N블럭 N로트` 같은 개발지구 표기, `도면표시 …` 면적 기술, 깨진 공백 등 API 검색을 방해하는 잡음을 정리합니다.
 - 건물명·동/호 같은 상세부는 보존하고 `제1층` 같은 층 정보만 제거합니다.
-- 지번이 없어도 `수유동 한양아이빌 402호`처럼 법정동+건물명이 있으면 건물명 검색어(kind `building`)로 살립니다.
+- 지번이 없어도 `샘플동 샘플아이빌 402호`처럼 법정동+건물명이 있으면 건물명 검색어(kind `building`)로 살립니다.
 - 원주소가 잘못됐거나 주소 골격·건물명이 모두 불명확하면 과감하게 검색어를 비우고 `검색주소없음`으로 표시합니다.
 - API 검증에서 상세 포함 검색이 0건이고 골격 검색만 1건으로 확정되면, 후단 자동화가 실패할 상세 검색어 대신 통한 골격을 검색어 열에 기록합니다(`--keep-detail-query`로 끌 수 있음).
 - API 검증 결과가 2건 이상이면 `2건이상검색`으로 표시해 사람이 확정하게 합니다.
@@ -37,8 +37,8 @@ pip install -e ".[dev]"
 ```python
 from address_cleaner import normalize_for_search, verify_address
 
-normalized = normalize_for_search("경기도 파주시 야당동 57-17 정우펠리스 제303동 제1층 제101호")
-normalized.query   # '경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호'
+normalized = normalize_for_search("경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제1층 제101호")
+normalized.query   # '경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호'
 normalized.kind    # 'lot' (지번) | 'road' (도로명) | 'building' (법정동+건물명) | 'invalid' | 'empty'
 
 # API 키(JUSO_CONFIRM_KEY / EPOST_SERVICE_KEY)가 환경변수에 있으면:
@@ -58,10 +58,10 @@ result.correction  # 골격/지번 변형으로만 통한 경우의 교정 후�
 단일 주소 정제:
 
 ```bash
-address-cleaner normalize "경기도 파주시 야당동 57-17 정우펠리스 제303동 제1층 제101호"
+address-cleaner normalize "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제1층 제101호"
 ```
 
-위 예시는 `경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호`처럼 층 정보만 제거하고 나머지 상세부는 포함한 검색어를 반환합니다.
+위 예시는 `경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호`처럼 층 정보만 제거하고 나머지 상세부는 포함한 검색어를 반환합니다.
 
 Excel H열 원주소를 I열 검색어로 변환:
 
@@ -112,7 +112,7 @@ address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --
 address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I --status-col M --detail-col O --admin-dict 법정동코드_전체자료.txt --mark-missing
 ```
 
-지번주소가 골격 검색까지 0건이면 붙여 쓴 지번 변형(`야당동 5717` → `57-17`)으로 후보를 찾아 검증상세에 제안만 남깁니다. 주소를 자동으로 바꾸지는 않습니다.
+지번주소가 골격 검색까지 0건이면 붙여 쓴 지번 변형(`테스트동 1234` → `12-34`)으로 후보를 찾아 검증상세에 제안만 남깁니다. 주소를 자동으로 바꾸지는 않습니다.
 
 `--mark-missing` 검증은 기본 8개 워커로 병렬 처리하되, 등기 모드와 같은 전역 레이트리미터가 provider별 초당 호출 수를 자동으로 제한해 API 차단을 피합니다. 같은 원주소가 반복되는 행은 병렬 제출 전에 하나로 합쳐지고, 검증 이력(`--history`)에 있는 주소는 API를 부르지 않습니다. 직렬로 돌리려면 `--workers 1`을 줍니다.
 
@@ -130,7 +130,7 @@ address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I \
 
 ```bash
 # corrections.json 검토 후 규칙으로 승격한 rules.json 적용
-# 형식: [["정우팰리스", "정우펠리스"]] 또는 {"replacements": [["...", "..."]]}
+# 형식: [["샘플팰리스", "샘플펠리스"]] 또는 {"replacements": [["...", "..."]]}
 address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I \
   --status-col M --mark-missing --typo-rules rules.json --corrections-out corrections.json
 ```
@@ -138,8 +138,8 @@ address-cleaner excel input.xlsx -o output.xlsx --source-col H --target-col I \
 API 키 상태 확인:
 
 ```bash
-address-cleaner probe epost "경기도 파주시 야당동 57-17"
-address-cleaner probe juso "경기도 파주시 야당동 57-17"
+address-cleaner probe epost "경기도 파주시 테스트동 12-34"
+address-cleaner probe juso "경기도 파주시 테스트동 12-34"
 ```
 
 `probe epost`도 Excel 검증과 동일하게 상세부 포함 검색이 맞지 않으면 짧은 ePost용 검색어로 재시도하고, 실제 사용한 검색어를 `query`로 출력합니다.
@@ -203,7 +203,7 @@ address-cleaner registry input.xlsx -o out --workers 8
 
   ```bash
   EPOST_ENDPOINT='https://openapi.epost.go.kr/postal/retrieveNewAdressAreaCdService/retrieveNewAdressAreaCdService/getNewAddressListAreaCd' \
-    address-cleaner probe epost "경기도 파주시 야당동 57-17"
+    address-cleaner probe epost "경기도 파주시 테스트동 12-34"
   ```
 
 ## Public source visibility boundary

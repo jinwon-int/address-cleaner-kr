@@ -131,7 +131,7 @@ LOT_RE = re.compile(
 
 
 def find_lot(value: str) -> re.Match[str] | None:
-    # 시/도가 생략된 원문('수원시 팔달구 인계동 123-4')도 지번주소로 인정하되,
+    # 시/도가 생략된 원문('수원시 팔달구 샘플동 123-4')도 지번주소로 인정하되,
     # 행정구역이 전혀 없는 매치('마장동 801')는 전국에 동명이 많아 주소로 보지 않는다.
     for m in LOT_RE.finditer(value):
         if m.group("sido") or m.group("city") or m.group("sigungu"):

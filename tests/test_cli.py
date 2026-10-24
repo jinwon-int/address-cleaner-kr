@@ -26,13 +26,13 @@ def _workbook(tmp_path, rows: list[str]):
 
 def test_normalize_prints_json_schema(capsys):
     exit_code = main(
-        ["normalize", "경기도 파주시 야당동 57-17 정우펠리스 제303동 제1층 제101호"]
+        ["normalize", "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제1층 제101호"]
     )
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert exit_code == 0
-    assert payload["query"] == "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    assert payload["query"] == "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호"
     assert payload["kind"] == "lot"
     assert payload["status"] == "ok"
     assert set(payload) >= {"original", "query", "kind", "status", "detail"}
@@ -42,7 +42,7 @@ def test_normalize_prints_json_schema(capsys):
 
 
 def test_excel_roundtrip_with_provider_none(tmp_path, capsys):
-    input_path = _workbook(tmp_path, ["경기도 파주시 야당동 57-17", "주소 미상"])
+    input_path = _workbook(tmp_path, ["경기도 파주시 테스트동 12-34", "주소 미상"])
     output_path = tmp_path / "out.xlsx"
 
     exit_code = main(
@@ -64,7 +64,7 @@ def test_excel_roundtrip_with_provider_none(tmp_path, capsys):
     assert stats["total"] == 2
     assert stats["missing"] == 1
     ws = openpyxl.load_workbook(output_path).active
-    assert ws["I2"].value == "경기도 파주시 야당동 57-17"
+    assert ws["I2"].value == "경기도 파주시 테스트동 12-34"
     assert ws["M3"].value == "검색주소없음"
 
 
@@ -79,7 +79,7 @@ def test_excel_returns_2_for_missing_input_file(tmp_path, capsys):
 
 
 def test_excel_detail_col_without_status_col_fails_cleanly(tmp_path, capsys):
-    input_path = _workbook(tmp_path, ["경기도 파주시 야당동 57-17"])
+    input_path = _workbook(tmp_path, ["경기도 파주시 테스트동 12-34"])
 
     exit_code = main(
         [
@@ -110,11 +110,11 @@ def _failure_workbook(tmp_path):
         "처리결과",
         "처리상세",
     )
-    ws["H2"] = "경기도 파주시 야당동 57-17"
-    ws["I2"] = "경기도 파주시 야당동 57-17"
+    ws["H2"] = "경기도 파주시 테스트동 12-34"
+    ws["I2"] = "경기도 파주시 테스트동 12-34"
     ws["M2"] = "완료"
-    ws["H3"] = "경기도 파주시 야당동 57-17 정우펠리스 제1(상층하층)층 제101호"
-    ws["I3"] = "경기도 파주시 야당동 57-17 정우펠리스 제1(상층하층)층 제101호"
+    ws["H3"] = "경기도 파주시 테스트동 12-34 샘플펠리스 제1(상층하층)층 제101호"
+    ws["I3"] = "경기도 파주시 테스트동 12-34 샘플펠리스 제1(상층하층)층 제101호"
     ws["M3"] = "실패(우편번호미확정)"
     ws["N3"] = "정보요청팝업[우편번호미확정]"
     wb.save(input_path)
@@ -164,11 +164,11 @@ def test_probe_juso_prints_result(monkeypatch, capsys):
             self.key = "test-key"
 
         def search(self, query: str, count: int = 10):
-            return SearchResult("juso", 1, {"roadAddr": "경기도 파주시 하우3길 22"}, {})
+            return SearchResult("juso", 1, {"roadAddr": "경기도 파주시 샘플3길 22"}, {})
 
     monkeypatch.setattr("address_cleaner.cli.JusoClient", _FakeJuso)
 
-    exit_code = main(["probe", "juso", "경기도 파주시 야당동 57-17"])
+    exit_code = main(["probe", "juso", "경기도 파주시 테스트동 12-34"])
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
@@ -186,17 +186,17 @@ def test_probe_epost_falls_back_to_compact_query(monkeypatch, capsys):
 
         def search(self, query: str, search_se: str = "road", count: int = 10):
             self.queries.append(query)
-            if query == "하우3길 22":
-                return SearchResult("epost", 1, {"zipNo": "10911"}, "")
+            if query == "샘플3길 22":
+                return SearchResult("epost", 1, {"zipNo": "00911"}, "")
             return SearchResult("epost", 0, {}, "")
 
     monkeypatch.setattr("address_cleaner.cli.KoreaPostRoadNameClient", _FakeEpost)
 
-    exit_code = main(["probe", "epost", "경기도 파주시 하우3길 22 정우펠리스 제101호"])
+    exit_code = main(["probe", "epost", "경기도 파주시 샘플3길 22 샘플펠리스 제101호"])
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert exit_code == 0
     assert payload["provider"] == "epost"
-    assert payload["query"] == "하우3길 22"  # 실제 사용한 검색어를 알려준다
+    assert payload["query"] == "샘플3길 22"  # 실제 사용한 검색어를 알려준다
     assert payload["found"] is True

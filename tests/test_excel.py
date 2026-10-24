@@ -71,7 +71,7 @@ def test_duplicate_columns_are_rejected(tmp_path, columns):
     input_path = tmp_path / "input.xlsx"
     wb = openpyxl.Workbook()
     wb.active["H1"] = "원주소"
-    wb.active["H2"] = "경기도 파주시 야당동 57-17"
+    wb.active["H2"] = "경기도 파주시 테스트동 12-34"
     wb.save(input_path)
 
     with pytest.raises(RuntimeError, match="같은 열을 두 번 지정"):
@@ -86,7 +86,7 @@ def test_provider_none_roundtrip_writes_headers_and_queries(tmp_path):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws["H1"] = "원주소"
-    ws["H2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제1층 제101호"
+    ws["H2"] = "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제1층 제101호"
     ws["H3"] = "주소 미상"
     ws["A4"] = "원주소 없는 서식 행"
     wb.save(input_path)
@@ -104,7 +104,7 @@ def test_provider_none_roundtrip_writes_headers_and_queries(tmp_path):
     assert ws["I1"].value == "주소검색어"
     assert ws["M1"].value == "주소검색결과"
     # 정상 행: I열 검색어, M열 빈칸
-    assert ws["I2"].value == "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    assert ws["I2"].value == "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호"
     assert ws["M2"].value in (None, "")
     # 무효 행: 검색어 비우고 검색주소없음
     assert not ws["I3"].value
@@ -124,7 +124,7 @@ def test_provider_none_roundtrip_writes_headers_and_queries(tmp_path):
 def test_header_false_processes_first_row(tmp_path):
     input_path = tmp_path / "input.xlsx"
     wb = openpyxl.Workbook()
-    wb.active["H1"] = "경기도 파주시 야당동 57-17"
+    wb.active["H1"] = "경기도 파주시 테스트동 12-34"
     wb.save(input_path)
 
     stats = process_workbook(
@@ -137,7 +137,7 @@ def test_header_false_processes_first_row(tmp_path):
     )
 
     ws = openpyxl.load_workbook(tmp_path / "out.xlsx").active
-    assert ws["I1"].value == "경기도 파주시 야당동 57-17"
+    assert ws["I1"].value == "경기도 파주시 테스트동 12-34"
     assert stats["total"] == 1
 
 
@@ -147,7 +147,7 @@ def test_api_key_without_mark_missing_warns(tmp_path, monkeypatch):
     input_path = tmp_path / "input.xlsx"
     wb = openpyxl.Workbook()
     wb.active["H1"] = "원주소"
-    wb.active["H2"] = "경기도 파주시 야당동 57-17"
+    wb.active["H2"] = "경기도 파주시 테스트동 12-34"
     wb.save(input_path)
 
     with pytest.warns(UserWarning, match="--mark-missing"):
