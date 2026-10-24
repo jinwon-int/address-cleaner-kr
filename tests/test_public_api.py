@@ -52,18 +52,18 @@ def test_verify_address_returns_dataclass():
             return SearchResult(
                 "juso",
                 1,
-                {"roadAddr": "경기도 파주시 하우3길 22", "zipNo": "10911"},
+                {"roadAddr": "경기도 파주시 샘플3길 22", "zipNo": "00911"},
                 {},
             )
 
     result = verify_address(
-        "경기도 파주시 야당동 57-17", "lot", juso=_FakeJuso(), epost=None
+        "경기도 파주시 테스트동 12-34", "lot", juso=_FakeJuso(), epost=None
     )
 
     assert isinstance(result, VerifyResult)
     assert result.verdict == "verified"
     assert result.verified
-    assert "10911" in result.detail
+    assert "00911" in result.detail
     assert result.correction is None
 
 
@@ -72,7 +72,7 @@ def test_verify_address_without_any_key_raises(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
     with pytest.raises(RuntimeError, match="API key"):
-        verify_address("경기도 파주시 야당동 57-17", "lot")
+        verify_address("경기도 파주시 테스트동 12-34", "lot")
 
 
 def test_verify_address_harvests_correction():
@@ -80,12 +80,12 @@ def test_verify_address_harvests_correction():
         key = "test-key"
 
         def search(self, query: str, count: int = 5):
-            if query == "경기도 파주시 야당동 57-17":
+            if query == "경기도 파주시 테스트동 12-34":
                 return SearchResult("juso", 1, {"roadAddr": "표준", "zipNo": "1"}, {})
             return SearchResult("juso", 0, {}, {})
 
     result = verify_address(
-        "경기도 파주시 야당동 57-17 정우펠리스 제101호",
+        "경기도 파주시 테스트동 12-34 샘플펠리스 제101호",
         "lot",
         juso=_BaseOnlyJuso(),
     )

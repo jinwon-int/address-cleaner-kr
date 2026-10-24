@@ -1,9 +1,9 @@
 """한국 주소 정제 + juso.go.kr/우체국 API 검증 라이브러리.
 
 >>> from address_cleaner import normalize_for_search, verify_address
->>> normalized = normalize_for_search("경기도 파주시 야당동 57-17 정우펠리스 제1층 제101호")
+>>> normalized = normalize_for_search("경기도 파주시 테스트동 12-34 샘플펠리스 제1층 제101호")
 >>> normalized.query
-'경기도 파주시 야당동 57-17 정우펠리스 제101호'
+'경기도 파주시 테스트동 12-34 샘플펠리스 제101호'
 >>> verify_address(normalized.query, normalized.kind).verdict  # API 키 필요
 'verified'
 """

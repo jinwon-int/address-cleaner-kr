@@ -23,9 +23,9 @@ JUSO_OK_RESPONSE = {
         "common": {"errorCode": "0", "errorMessage": "정상", "totalCount": "1"},
         "juso": [
             {
-                "roadAddr": "경기도 파주시 하우3길 22",
-                "jibunAddr": "경기도 파주시 야당동 57-17",
-                "zipNo": "10911",
+                "roadAddr": "경기도 파주시 샘플3길 22",
+                "jibunAddr": "경기도 파주시 테스트동 12-34",
+                "zipNo": "00911",
             }
         ],
     }
@@ -41,14 +41,14 @@ EPOST_OK_XML = (
     "<NewAddressListResponse><cmmMsgHeader>"
     "<returnCode>00</returnCode><totalCount>1</totalCount>"
     "</cmmMsgHeader><newAddressListAreaCd>"
-    "<zipNo>10911</zipNo><lnmAdres>경기도 파주시 하우3길 22</lnmAdres>"
+    "<zipNo>00911</zipNo><lnmAdres>경기도 파주시 샘플3길 22</lnmAdres>"
     "</newAddressListAreaCd></NewAddressListResponse>"
 )
 
 EPOST_ITEM_FALLBACK_XML = (
     "<response><header><returnCode>00</returnCode></header>"
     "<body><totalCnt>1</totalCnt><items><item>"
-    "<zipNo>10911</zipNo><lnmAdres>경기도 파주시 하우3길 22</lnmAdres>"
+    "<zipNo>00911</zipNo><lnmAdres>경기도 파주시 샘플3길 22</lnmAdres>"
     "</item></items></body></response>"
 )
 
@@ -88,10 +88,10 @@ def test_request_juso_parses_total_and_rows(monkeypatch):
         clients.requests, "get", lambda *a, **k: _Response(JUSO_OK_RESPONSE)
     )
 
-    result = request_juso("key", "경기도 파주시 야당동 57-17")
+    result = request_juso("key", "경기도 파주시 테스트동 12-34")
 
     assert result["total"] == 1
-    assert result["rows"][0]["zipNo"] == "10911"
+    assert result["rows"][0]["zipNo"] == "00911"
     assert "error_code" not in result
 
 
@@ -100,7 +100,7 @@ def test_request_juso_returns_error_fields_without_raising(monkeypatch):
         clients.requests, "get", lambda *a, **k: _Response(JUSO_ERROR_RESPONSE)
     )
 
-    result = request_juso("bad-key", "경기도 파주시 야당동 57-17")
+    result = request_juso("bad-key", "경기도 파주시 테스트동 12-34")
 
     assert result["total"] == 0
     assert result["rows"] == []
@@ -120,7 +120,7 @@ def test_request_juso_retries_transient_errors_with_backoff(monkeypatch):
 
     monkeypatch.setattr(clients.requests, "get", flaky_get)
 
-    result = request_juso("key", "경기도 파주시 야당동 57-17")
+    result = request_juso("key", "경기도 파주시 테스트동 12-34")
 
     assert result["total"] == 1
     assert calls["n"] == 3
@@ -136,7 +136,7 @@ def test_request_juso_raises_after_retries_exhausted(monkeypatch):
     monkeypatch.setattr(clients.requests, "get", always_fail)
 
     with pytest.raises(requests.ConnectionError):
-        request_juso("key", "경기도 파주시 야당동 57-17", retries=2)
+        request_juso("key", "경기도 파주시 테스트동 12-34", retries=2)
 
 
 def test_request_juso_retries_non_json_response(monkeypatch):
@@ -152,7 +152,7 @@ def test_request_juso_retries_non_json_response(monkeypatch):
 
     monkeypatch.setattr(clients.requests, "get", html_then_json)
 
-    result = request_juso("key", "경기도 파주시 야당동 57-17")
+    result = request_juso("key", "경기도 파주시 테스트동 12-34")
 
     assert result["total"] == 1
     assert calls["n"] == 2
@@ -173,7 +173,7 @@ def test_request_juso_uses_injected_session(monkeypatch):
     monkeypatch.setattr(clients.requests, "get", forbid_module_get)
     session = _Session()
 
-    result = request_juso("key", "경기도 파주시 야당동 57-17", session=session)
+    result = request_juso("key", "경기도 파주시 테스트동 12-34", session=session)
 
     assert result["total"] == 1
     assert session.calls == 1
@@ -187,7 +187,7 @@ def test_juso_client_requires_key(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
     with pytest.raises(RuntimeError, match="JUSO_CONFIRM_KEY"):
-        JusoClient().search("경기도 파주시 야당동 57-17")
+        JusoClient().search("경기도 파주시 테스트동 12-34")
 
 
 def test_juso_client_reads_any_supported_env_var(monkeypatch):
@@ -204,7 +204,7 @@ def test_juso_client_maps_api_error_to_search_result(monkeypatch):
         clients.requests, "get", lambda *a, **k: _Response(JUSO_ERROR_RESPONSE)
     )
 
-    result = JusoClient(key="bad-key").search("경기도 파주시 야당동 57-17")
+    result = JusoClient(key="bad-key").search("경기도 파주시 테스트동 12-34")
 
     assert result.provider == "juso"
     assert result.has_error
@@ -217,12 +217,12 @@ def test_juso_client_returns_first_row(monkeypatch):
         clients.requests, "get", lambda *a, **k: _Response(JUSO_OK_RESPONSE)
     )
 
-    result = JusoClient(key="key").search("경기도 파주시 야당동 57-17")
+    result = JusoClient(key="key").search("경기도 파주시 테스트동 12-34")
 
     assert result.found
     assert not result.has_error
     assert result.total_count == 1
-    assert result.first["roadAddr"] == "경기도 파주시 하우3길 22"
+    assert result.first["roadAddr"] == "경기도 파주시 샘플3길 22"
 
 
 # --- KoreaPostRoadNameClient ---
@@ -251,7 +251,7 @@ def test_epost_endpoint_env_override(monkeypatch):
 
     monkeypatch.setattr(clients.requests, "get", capture_get)
 
-    result = KoreaPostRoadNameClient(key="k").search("하우3길 22")
+    result = KoreaPostRoadNameClient(key="k").search("샘플3길 22")
 
     assert seen["url"] == override
     assert result.total_count == 1
@@ -262,7 +262,7 @@ def test_epost_requires_key(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
     with pytest.raises(RuntimeError, match="EPOST_SERVICE_KEY"):
-        KoreaPostRoadNameClient().search("하우3길 22")
+        KoreaPostRoadNameClient().search("샘플3길 22")
 
 
 def test_epost_parses_total_count_and_first_item(monkeypatch):
@@ -270,10 +270,10 @@ def test_epost_parses_total_count_and_first_item(monkeypatch):
         clients.requests, "get", lambda *a, **k: _Response(text=EPOST_OK_XML)
     )
 
-    result = KoreaPostRoadNameClient(key="key").search("하우3길 22")
+    result = KoreaPostRoadNameClient(key="key").search("샘플3길 22")
 
     assert result.total_count == 1
-    assert result.first["zipNo"] == "10911"
+    assert result.first["zipNo"] == "00911"
     assert not result.has_error
 
 
@@ -284,10 +284,10 @@ def test_epost_falls_back_to_item_element(monkeypatch):
         lambda *a, **k: _Response(text=EPOST_ITEM_FALLBACK_XML),
     )
 
-    result = KoreaPostRoadNameClient(key="key").search("하우3길 22")
+    result = KoreaPostRoadNameClient(key="key").search("샘플3길 22")
 
     assert result.total_count == 1  # totalCnt 폴백
-    assert result.first["lnmAdres"] == "경기도 파주시 하우3길 22"
+    assert result.first["lnmAdres"] == "경기도 파주시 샘플3길 22"
 
 
 def test_epost_marks_error_return_code(monkeypatch):
@@ -295,7 +295,7 @@ def test_epost_marks_error_return_code(monkeypatch):
         clients.requests, "get", lambda *a, **k: _Response(text=EPOST_ERROR_XML)
     )
 
-    result = KoreaPostRoadNameClient(key="bad-key").search("하우3길 22")
+    result = KoreaPostRoadNameClient(key="bad-key").search("샘플3길 22")
 
     assert result.has_error
     assert result.first["returnCode"] == "30"
@@ -314,7 +314,7 @@ def test_epost_retries_broken_xml(monkeypatch):
 
     monkeypatch.setattr(clients.requests, "get", broken_then_ok)
 
-    result = KoreaPostRoadNameClient(key="key").search("하우3길 22")
+    result = KoreaPostRoadNameClient(key="key").search("샘플3길 22")
 
     assert result.total_count == 1
     assert calls["n"] == 2
@@ -328,7 +328,7 @@ def test_epost_raises_after_retries_exhausted(monkeypatch):
     )
 
     with pytest.raises(Exception):
-        KoreaPostRoadNameClient(key="key").search("하우3길 22", retries=1)
+        KoreaPostRoadNameClient(key="key").search("샘플3길 22", retries=1)
 
 
 def test_epost_percent_encoded_service_key_is_decoded(monkeypatch):
@@ -341,7 +341,7 @@ def test_epost_percent_encoded_service_key_is_decoded(monkeypatch):
 
     monkeypatch.setattr(clients.requests, "get", capture_get)
 
-    KoreaPostRoadNameClient(key="ab%2Bcd%2Fef%3D%3D").search("하우3길 22")
+    KoreaPostRoadNameClient(key="ab%2Bcd%2Fef%3D%3D").search("샘플3길 22")
 
     assert seen["key"] == "ab+cd/ef=="
 
@@ -355,7 +355,7 @@ def test_epost_plain_service_key_is_left_untouched(monkeypatch):
 
     monkeypatch.setattr(clients.requests, "get", capture_get)
 
-    KoreaPostRoadNameClient(key="ab+cd/ef==").search("하우3길 22")
+    KoreaPostRoadNameClient(key="ab+cd/ef==").search("샘플3길 22")
 
     assert seen["key"] == "ab+cd/ef=="
 

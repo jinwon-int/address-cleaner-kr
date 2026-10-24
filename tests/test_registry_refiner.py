@@ -58,26 +58,26 @@ class AddressRefinementTest(unittest.TestCase):
 
 class TypoFixTest(unittest.TestCase):
     def test_keeps_road_names_starting_with_si(self) -> None:
-        self.assertEqual(typo_fix("인천광역시 시민로 100"), "인천광역시 시민로 100")
+        self.assertEqual(typo_fix("인천광역시 시샘플로 100"), "인천광역시 시샘플로 100")
 
     def test_collapses_duplicated_si_token(self) -> None:
         self.assertEqual(
-            typo_fix("인천광역시 시 부평구 부평동 100-1"),
-            "인천광역시 부평구 부평동 100-1",
+            typo_fix("인천광역시 시 부평구 샘플동 100-1"),
+            "인천광역시 부평구 샘플동 100-1",
         )
 
     def test_expands_sido_abbreviation_only_at_start(self) -> None:
         self.assertEqual(
-            typo_fix("서울 강남구 역삼동 123-4"), "서울특별시 강남구 역삼동 123-4"
+            typo_fix("서울 강남구 테스트동 123-4"), "서울특별시 강남구 테스트동 123-4"
         )
         self.assertEqual(
-            typo_fix("인천광역시 연수구 옥련동 12-3 서울 빌라 101호"),
-            "인천광역시 연수구 옥련동 12-3 서울 빌라 101호",
+            typo_fix("인천광역시 연수구 견본동 12-3 서울 빌라 101호"),
+            "인천광역시 연수구 견본동 12-3 서울 빌라 101호",
         )
 
     def test_strips_leading_zip_before_expanding_abbreviation(self) -> None:
         self.assertEqual(
-            typo_fix("12345 경기 김포시 사우동 256-1"), "경기도 김포시 사우동 256-1"
+            typo_fix("12345 경기 김포시 견본동 256-1"), "경기도 김포시 견본동 256-1"
         )
 
 
@@ -87,15 +87,15 @@ class ExtraTypoRulesTest(unittest.TestCase):
 
     def test_extra_rules_apply_after_loading(self) -> None:
         self.assertEqual(
-            typo_fix("서울특별시 강남구 역삼동 12-3 헬리오시티이"),
-            "서울특별시 강남구 역삼동 12-3 헬리오시티이",
+            typo_fix("서울특별시 강남구 테스트동 12-3 테스트시티이"),
+            "서울특별시 강남구 테스트동 12-3 테스트시티이",
         )
 
-        set_extra_typo_rules([("헬리오시티이", "헬리오시티")])
+        set_extra_typo_rules([("테스트시티이", "테스트시티")])
 
         self.assertEqual(
-            typo_fix("서울특별시 강남구 역삼동 12-3 헬리오시티이"),
-            "서울특별시 강남구 역삼동 12-3 헬리오시티",
+            typo_fix("서울특별시 강남구 테스트동 12-3 테스트시티이"),
+            "서울특별시 강남구 테스트동 12-3 테스트시티",
         )
 
     def test_load_typo_rules_accepts_list_and_dict_forms(self) -> None:
@@ -123,15 +123,15 @@ class CleanRawRobustnessTest(unittest.TestCase):
     def test_collapses_duplicated_dong_ho_block(self) -> None:
         self.assertEqual(
             clean_raw(
-                "서울특별시 성북구 석관동 411 혜성스테이 101동 504호 101동 504호"
+                "서울특별시 성북구 견본동 411 샘플스테이 101동 504호 101동 504호"
             ),
-            "서울특별시 성북구 석관동 411 혜성스테이 101동 504호",
+            "서울특별시 성북구 견본동 411 샘플스테이 101동 504호",
         )
 
     def test_fixes_floor_typo_chung(self) -> None:
         self.assertEqual(
-            clean_raw("경기도 파주시 야당동 57-17 정우펠리스 제303동 제2충 제101호"),
-            "경기도 파주시 야당동 57-17 정우펠리스 303동 2층 101호",
+            clean_raw("경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제2충 제101호"),
+            "경기도 파주시 테스트동 12-34 샘플펠리스 909동 2층 101호",
         )
 
     def test_does_not_touch_chungcheong_or_chungjeong_road(self) -> None:
@@ -157,10 +157,10 @@ class UnitRangeGuardTest(unittest.TestCase):
 class UnitDongTest(unittest.TestCase):
     def test_removes_bare_dong_before_unit(self) -> None:
         self.assertEqual(
-            normalize_unit_dong("송내동 572-5 동402호"), "송내동 572-5 402호"
+            normalize_unit_dong("샘플동 98-7 동402호"), "샘플동 98-7 402호"
         )
         self.assertEqual(
-            normalize_unit_dong("문화드림빌 동1108호"), "문화드림빌 1108호"
+            normalize_unit_dong("샘플드림빌 동1108호"), "샘플드림빌 1108호"
         )
 
     def test_splits_fused_building_dong_and_unit(self) -> None:
@@ -168,26 +168,26 @@ class UnitDongTest(unittest.TestCase):
         self.assertEqual(normalize_unit_dong("101동202호"), "101동 202호")
 
     def test_keeps_legal_dong_and_spaced_building_dong(self) -> None:
-        # 법정동(약대동)·번호 있는 건물동(101동)·'성수동1가'는 그대로 둔다.
+        # 법정동(샘플동)·번호 있는 건물동(101동)·'성수동1가'는 그대로 둔다.
         self.assertEqual(
-            normalize_unit_dong("약대동 52 동화탑스빌 401호"),
-            "약대동 52 동화탑스빌 401호",
+            normalize_unit_dong("샘플동 52 동테스트빌 401호"),
+            "샘플동 52 동테스트빌 401호",
         )
         self.assertEqual(normalize_unit_dong("성수동1가 101호"), "성수동1가 101호")
         self.assertEqual(normalize_unit_dong("101동 202호"), "101동 202호")
 
     def test_unit_extract_drops_bare_dong_from_ho(self) -> None:
         unit = unit_extract(
-            "인천 미추홀구 주안동 1457-9 동301호",
+            "인천 미추홀구 테스트동 1457-9 동301호",
             "",
-            "인천광역시 미추홀구 주안동 1457-9",
+            "인천광역시 미추홀구 테스트동 1457-9",
         )
         self.assertEqual(unit["ho"], "301")
         self.assertEqual(unit["bld_dong"], "")
 
     def test_unit_extract_recovers_fused_building_dong(self) -> None:
         unit = unit_extract(
-            "인천 남동구 간석동 94-7 1동303호", "", "인천광역시 남동구 간석동 94-7"
+            "인천 남동구 샘플동 94-7 1동303호", "", "인천광역시 남동구 샘플동 94-7"
         )
         self.assertEqual(unit["bld_dong"], "1")
         self.assertEqual(unit["ho"], "303")
@@ -195,23 +195,23 @@ class UnitDongTest(unittest.TestCase):
     def test_building_name_ignores_parenthetical_unit_detail(self) -> None:
         # (동 102호)는 상세부일 뿐 건물명이 아니다.
         name = building_name(
-            "인천광역시 남동구 구월동 1290-10 (동 102호)",
-            "인천광역시 남동구 구월동 1290-10",
+            "인천광역시 남동구 모의동 1290-10 (동 102호)",
+            "인천광역시 남동구 모의동 1290-10",
         )
         self.assertEqual(name, "")
 
 
 class ParseLotAddrTest(unittest.TestCase):
     def test_mountain_lot_number(self) -> None:
-        parsed = parse_lot_addr("서울특별시 관악구 신림동 산 101-1 가나빌라 201호")
+        parsed = parse_lot_addr("서울특별시 관악구 모의동 산 101-1 가나빌라 201호")
 
         self.assertEqual(parsed["lot"], "산101-1")
-        self.assertEqual(parsed["addr"], "서울특별시 관악구 신림동 산101-1")
+        self.assertEqual(parsed["addr"], "서울특별시 관악구 모의동 산101-1")
 
     def test_sido_omitted_address(self) -> None:
         self.assertEqual(
-            parse_lot_addr("수원시 팔달구 인계동 123-4")["addr"],
-            "수원시 팔달구 인계동 123-4",
+            parse_lot_addr("수원시 팔달구 샘플동 123-4")["addr"],
+            "수원시 팔달구 샘플동 123-4",
         )
 
     def test_unit_number_is_not_a_lot(self) -> None:
@@ -224,13 +224,14 @@ class ParseLotAddrTest(unittest.TestCase):
 class StripDetailTest(unittest.TestCase):
     def test_keeps_lot_only_address(self) -> None:
         self.assertEqual(
-            strip_detail("서울특별시 강남구 역삼동 123"), "서울특별시 강남구 역삼동 123"
+            strip_detail("서울특별시 강남구 테스트동 123"),
+            "서울특별시 강남구 테스트동 123",
         )
 
     def test_strips_bare_trailing_unit_number(self) -> None:
         self.assertEqual(
-            strip_detail("서울특별시 강남구 역삼동 123-4 1202"),
-            "서울특별시 강남구 역삼동 123-4",
+            strip_detail("서울특별시 강남구 테스트동 123-4 1202"),
+            "서울특별시 강남구 테스트동 123-4",
         )
 
     def test_keeps_road_building_number(self) -> None:
@@ -243,12 +244,12 @@ class StripDetailTest(unittest.TestCase):
 class ExtraParcelsTest(unittest.TestCase):
     def test_detects_extra_parcels(self) -> None:
         self.assertTrue(
-            has_extra_parcels("인천광역시 연수구 옥련동 123-4 외 3필지 101호")
+            has_extra_parcels("인천광역시 연수구 견본동 123-4 외 3필지 101호")
         )
 
     def test_ignores_oe_inside_building_name(self) -> None:
         self.assertFalse(
-            has_extra_parcels("인천광역시 연수구 옥련동 123-4 외동마을 101호")
+            has_extra_parcels("인천광역시 연수구 견본동 123-4 외동마을 101호")
         )
 
 
@@ -258,12 +259,12 @@ class UnderSpecifiedTest(unittest.TestCase):
 
     def test_mountain_lot_is_specified(self) -> None:
         self.assertFalse(
-            original_is_under_specified("서울특별시 관악구 신림동 산 101-1 201호")
+            original_is_under_specified("서울특별시 관악구 모의동 산 101-1 201호")
         )
 
     def test_building_name_is_specified(self) -> None:
         self.assertFalse(
-            original_is_under_specified("서울특별시 성동구 마장동 가람빌리지 801호")
+            original_is_under_specified("서울특별시 성동구 견본동 샘플빌리지 801호")
         )
 
 
@@ -273,7 +274,7 @@ class RegistryExactOnePolicyTest(unittest.TestCase):
         return {
             "roadAddr": f"서울특별시 강남구 테헤란로 123 테스트빌딩 {unit}호",
             "roadAddrPart1": "서울특별시 강남구 테헤란로 123",
-            "jibunAddr": "서울특별시 강남구 역삼동 123-4",
+            "jibunAddr": "서울특별시 강남구 테스트동 123-4",
             "bdNm": "테스트빌딩",
             "zipNo": "06234",
             "admCd": "1168010100",
@@ -297,7 +298,7 @@ class RegistryExactOnePolicyTest(unittest.TestCase):
             ws = wb.active
             ws.title = "Sheet1"
             ws["A1"] = "대상 임대차계약 주소"
-            ws["A2"] = "서울특별시 강남구 역삼동 123-4 테스트빌딩 101호"
+            ws["A2"] = "서울특별시 강남구 테스트동 123-4 테스트빌딩 101호"
             wb.save(input_file)
 
             row = self._juso_row("101")
@@ -441,9 +442,9 @@ class ParallelRefineTest(unittest.TestCase):
 
     def test_parallel_matches_serial_and_covers_all_rows(self) -> None:
         addresses = [
-            "서울특별시 강남구 역삼동 123-4 가나아파트 101호",
-            "인천광역시 연수구 송도동 55-1 나라빌 902호",
-            "경기도 성남시 분당구 정자동 77-7 다온타워 1503호",
+            "서울특별시 강남구 테스트동 123-4 가나아파트 101호",
+            "인천광역시 연수구 샘플동 55-1 샘플빌 902호",
+            "경기도 성남시 분당구 테스트동 77-7 테스트타워 1503호",
         ]
         parallel = self._run(addresses, workers=8)
         serial = self._run(addresses, workers=1)
@@ -473,9 +474,9 @@ class DuplexFloorNotationTest(unittest.TestCase):
         # 실제 전산 입력 실패 사례(우편번호 미확정)에서 확인된 복층 표기.
         self.assertEqual(
             clean_raw(
-                "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제1(상층하층)층 제101호"
+                "경기도 고양시 일산동구 견본동 98-7 테스트타운 제비동 제1(상층하층)층 제101호"
             ),
-            "경기도 고양시 일산동구 중산동 78-7 시크릿타운 비동 1층 101호",
+            "경기도 고양시 일산동구 견본동 98-7 테스트타운 비동 1층 101호",
         )
 
 

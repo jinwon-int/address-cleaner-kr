@@ -17,7 +17,7 @@ from address_cleaner.juso_search import (
     stamp_cache_entry,
 )
 
-KEYWORD = "경기도 파주시 야당동 57-17"
+KEYWORD = "경기도 파주시 테스트동 12-34"
 CACHE_KEY = f"clean:5:{KEYWORD}"
 
 

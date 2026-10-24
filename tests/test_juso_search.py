@@ -60,11 +60,11 @@ def test_registry_import_paths_stay_compatible():
 
 ADDRESSES = {
     # 상세포함 1건 → verified
-    "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호": 1,
+    "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호": 1,
     # 2건 이상 → ambiguous
     "서울특별시 강남구 테헤란로 152 강남파이낸스센터": 2,
     # 0건 (골격/변형도 0건) → missing
-    "경기도 파주시 야당동 99-99 없는빌라 101호": 0,
+    "경기도 파주시 테스트동 99-99 없는빌라 101호": 0,
 }
 
 
@@ -82,7 +82,7 @@ class _MappedJuso:
         for addr, total in ADDRESSES.items():
             if query == addr or addr.startswith(query):
                 return SearchResult(
-                    "juso", total, {"roadAddr": "표준주소", "zipNo": "10911"}, {}
+                    "juso", total, {"roadAddr": "표준주소", "zipNo": "00911"}, {}
                 )
         return SearchResult("juso", 0, {}, {})
 

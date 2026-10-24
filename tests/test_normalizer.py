@@ -20,9 +20,9 @@ from address_cleaner.normalizer import (
 
 def test_lot_address_keeps_building_detail():
     result = normalize_for_search(
-        "경기도 파주시 야당동 57-17 정우펠리스 제303동 제1층 제101호"
+        "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제1층 제101호"
     )
-    assert result.query == "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    assert result.query == "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호"
     assert result.kind == "lot"
     assert result.searchable
 
@@ -34,23 +34,23 @@ def test_lot_address_removes_orphan_dong_before_unit():
         ("동 제402호", "제402호"),
     ]
     for unit, expected_unit in cases:
-        result = normalize_for_search(f"경기도 부천시 소사구 송내동 572-5 {unit}")
+        result = normalize_for_search(f"경기도 부천시 소사구 샘플동 98-7 {unit}")
 
-        assert result.query == f"경기도 부천시 소사구 송내동 572-5 {expected_unit}"
+        assert result.query == f"경기도 부천시 소사구 샘플동 98-7 {expected_unit}"
 
 
 def test_lot_address_keeps_identified_and_legal_dong():
     for unit in ["101동 402호", "A동 402호"]:
-        result = normalize_for_search(f"경기도 부천시 소사구 송내동 572-5 {unit}")
+        result = normalize_for_search(f"경기도 부천시 소사구 샘플동 98-7 {unit}")
 
-        assert result.query == f"경기도 부천시 소사구 송내동 572-5 {unit}"
+        assert result.query == f"경기도 부천시 소사구 샘플동 98-7 {unit}"
 
 
 def test_lot_address_removes_extra_lot_marker():
     result = normalize_for_search(
-        "경기도 파주시 동패동 7외 1필지 노블타운 제102동 제4층 제401호"
+        "경기도 파주시 샘플동 9외 1필지 샘플타운 제102동 제4층 제401호"
     )
-    assert result.query == "경기도 파주시 동패동 7 노블타운 제102동 제401호"
+    assert result.query == "경기도 파주시 샘플동 9 샘플타운 제102동 제401호"
     assert result.kind == "lot"
 
 
@@ -63,31 +63,31 @@ def test_road_address_keeps_detail_after_building_number():
 
 
 def test_lot_detail_excludes_spaced_mountain_lot_number():
-    result = normalize_for_search("서울특별시 강남구 역삼동 산 12-3 어떤빌라 101호")
+    result = normalize_for_search("서울특별시 강남구 테스트동 산 12-3 어떤빌라 101호")
     assert result.kind == "lot"
     assert result.detail == "어떤빌라 101호"
 
 
 def test_compact_for_epost_uses_road_name_and_building_number_only():
     assert (
-        compact_for_epost("경기도 파주시 하우3길 22 정우펠리스 제303동 제101호", "road")
-        == "하우3길 22"
+        compact_for_epost("경기도 파주시 샘플3길 22 샘플펠리스 제909동 제101호", "road")
+        == "샘플3길 22"
     )
 
 
 def test_compact_for_epost_uses_lot_area_and_lot_number_only():
     assert (
         compact_for_epost(
-            "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호", "lot"
+            "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호", "lot"
         )
-        == "야당동 57-17"
+        == "테스트동 12-34"
     )
 
 
 def test_preprocess_repairs_missing_spaces():
     assert (
-        preprocess_raw_address("경기도파주시야당동57-17")
-        == "경기도 파주시 야당동 57-17"
+        preprocess_raw_address("경기도파주시테스트동12-34")
+        == "경기도 파주시 테스트동 12-34"
     )
 
 
@@ -99,7 +99,7 @@ def test_malformed_address_is_not_searchable():
 
 
 def test_unrecognized_address_does_not_emit_fallback_query():
-    result = normalize_for_search("경기도 파주시 정우펠리스 제303동 제1층 제101호")
+    result = normalize_for_search("경기도 파주시 샘플펠리스 제909동 제1층 제101호")
     assert result.query == ""
     assert result.kind == "invalid"
     assert result.status == "unrecognized"
@@ -131,7 +131,7 @@ def test_mark_missing_without_api_keys_raises(tmp_path):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws["H1"] = "원주소"
-    ws["H2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제1층 제101호"
+    ws["H2"] = "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제1층 제101호"
     wb.save(input_path)
 
     try:
@@ -155,7 +155,7 @@ def test_provider_none_with_mark_missing_does_not_mark_searchable_rows(tmp_path)
     wb = openpyxl.Workbook()
     ws = wb.active
     ws["H1"] = "원주소"
-    ws["H2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제1층 제101호"
+    ws["H2"] = "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제1층 제101호"
     wb.save(input_path)
 
     stats = process_workbook(
@@ -171,7 +171,8 @@ def test_provider_none_with_mark_missing_does_not_mark_searchable_rows(tmp_path)
     result_wb = openpyxl.load_workbook(output_path)
     result_ws = result_wb.active
     assert (
-        result_ws["I2"].value == "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+        result_ws["I2"].value
+        == "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호"
     )
     assert result_ws["N2"].value is None
     assert stats["missing"] == 0
@@ -203,7 +204,7 @@ class _FallbackEpost:
 
     def search(self, query: str, search_se: str = "road", count: int = 5):
         self.queries.append((query, search_se))
-        if query == "하우3길 22":
+        if query == "샘플3길 22":
             return SearchResult("epost", 1, {}, "")
         return SearchResult("epost", 0, {"returnCode": "01"}, "")
 
@@ -290,8 +291,8 @@ def test_process_workbook_reuses_verification_for_repeated_addresses(
     wb = openpyxl.Workbook()
     ws = wb.active
     ws["H1"] = "원주소"
-    ws["H2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
-    ws["H3"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    ws["H2"] = "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호"
+    ws["H3"] = "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호"
     wb.save(input_path)
 
     stats = process_workbook(
@@ -323,7 +324,7 @@ def test_process_workbook_marks_m_column_when_juso_returns_no_results(
     wb = openpyxl.Workbook()
     ws = wb.active
     ws["H1"] = "원주소"
-    ws["H2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    ws["H2"] = "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호"
     wb.save(input_path)
 
     stats = process_workbook(
@@ -357,7 +358,7 @@ def test_process_workbook_marks_m_column_when_juso_returns_multiple_results(
     wb = openpyxl.Workbook()
     ws = wb.active
     ws["H1"] = "원주소"
-    ws["H2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    ws["H2"] = "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호"
     wb.save(input_path)
 
     stats = process_workbook(
@@ -379,12 +380,12 @@ def test_process_workbook_marks_m_column_when_juso_returns_multiple_results(
 def test_verify_falls_back_to_compact_epost_query():
     epost = _FallbackEpost()
     result, _detail, _ = _verify(
-        "경기도 파주시 하우3길 22 정우펠리스 제303동 제101호", "road", None, epost
+        "경기도 파주시 샘플3길 22 샘플펠리스 제909동 제101호", "road", None, epost
     )
     assert result == "verified"
     assert epost.queries == [
-        ("경기도 파주시 하우3길 22 정우펠리스 제303동 제101호", "road"),
-        ("하우3길 22", "road"),
+        ("경기도 파주시 샘플3길 22 샘플펠리스 제909동 제101호", "road"),
+        ("샘플3길 22", "road"),
     ]
 
 
@@ -399,7 +400,7 @@ def test_cli_prints_clean_error_for_missing_api_keys(tmp_path, capsys):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws["H1"] = "원주소"
-    ws["H2"] = "경기도 파주시 야당동 57-17"
+    ws["H2"] = "경기도 파주시 테스트동 12-34"
     wb.save(input_path)
 
     exit_code = main(
@@ -430,7 +431,7 @@ def test_registry_subcommand_delegates_to_registry_refiner(
     wb = openpyxl.Workbook()
     ws = wb.active
     ws["A1"] = "대상 임대차계약 주소"
-    ws["A2"] = "서울특별시 강남구 역삼동 123-4 101호"
+    ws["A2"] = "서울특별시 강남구 테스트동 123-4 101호"
     wb.save(input_path)
     monkeypatch.delenv("JUSO_CONFIRM_KEY", raising=False)
     monkeypatch.delenv("JUSO_CONFM_KEY", raising=False)
@@ -477,8 +478,8 @@ def test_institution_name_keeps_sido_prefix_attached():
     assert preprocess_raw_address("서울특별시립미술관") == "서울특별시립미술관"
     # 원래 목적(붙어 있는 시/도 + 시군구 복원)은 그대로 동작해야 한다.
     assert (
-        preprocess_raw_address("서울특별시강남구 역삼동 736-32")
-        == "서울특별시 강남구 역삼동 736-32"
+        preprocess_raw_address("서울특별시강남구 테스트동 456-78")
+        == "서울특별시 강남구 테스트동 456-78"
     )
 
 
@@ -495,7 +496,7 @@ def test_empty_source_rows_keep_status_blank(tmp_path):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws["H1"] = "원주소"
-    ws["H2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    ws["H2"] = "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호"
     ws["A3"] = "서식만 남은 행"
     wb.save(input_path)
 
@@ -543,10 +544,10 @@ def test_epost_search_retries_transient_errors(monkeypatch):
 def test_duplex_floor_detail_with_parenthetical_is_removed():
     # 실제 전산 입력 실패 사례: '제1(상층하층)층'이 검색어에 남아 우편번호 확정 실패.
     result = normalize_for_search(
-        "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제1(상층하층)층 제101호"
+        "경기도 고양시 일산동구 견본동 98-7 테스트타운 제비동 제1(상층하층)층 제101호"
     )
     assert (
-        result.query == "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제101호"
+        result.query == "경기도 고양시 일산동구 견본동 98-7 테스트타운 제비동 제101호"
     )
     assert result.kind == "lot"
 
@@ -560,18 +561,18 @@ def test_verify_retries_juso_with_base_skeleton_when_detail_query_misses():
 
         def search(self, query: str, count: int = 5):
             self.queries.append(query)
-            if query == "경기도 고양시 일산동구 중산동 78-7":
+            if query == "경기도 고양시 일산동구 견본동 98-7":
                 return SearchResult(
                     "juso",
                     1,
-                    {"roadAddr": "경기도 고양시 일산동구 중앙로 123", "zipNo": "10401"},
+                    {"roadAddr": "경기도 고양시 일산동구 샘플로 123", "zipNo": "00401"},
                     {},
                 )
             return SearchResult("juso", 0, {}, {})
 
     juso = _BaseOnlyJuso()
     status, detail, correction = _verify(
-        "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제101호",
+        "경기도 고양시 일산동구 견본동 98-7 테스트타운 제비동 제101호",
         "lot",
         juso,
         None,
@@ -579,13 +580,13 @@ def test_verify_retries_juso_with_base_skeleton_when_detail_query_misses():
 
     assert status == "verified"
     assert juso.queries == [
-        "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제101호",
-        "경기도 고양시 일산동구 중산동 78-7",
+        "경기도 고양시 일산동구 견본동 98-7 테스트타운 제비동 제101호",
+        "경기도 고양시 일산동구 견본동 98-7",
     ]
     assert "골격" in detail
-    assert "10401" in detail
+    assert "00401" in detail
     assert correction["type"] == "상세부제거"
-    assert correction["working"] == "경기도 고양시 일산동구 중산동 78-7"
+    assert correction["working"] == "경기도 고양시 일산동구 견본동 98-7"
 
 
 def test_process_workbook_writes_detail_column(tmp_path, monkeypatch):
@@ -596,7 +597,7 @@ def test_process_workbook_writes_detail_column(tmp_path, monkeypatch):
             return SearchResult(
                 "juso",
                 1,
-                {"roadAddr": "경기도 파주시 하우3길 22", "zipNo": "10911"},
+                {"roadAddr": "경기도 파주시 샘플3길 22", "zipNo": "00911"},
                 {},
             )
 
@@ -606,7 +607,7 @@ def test_process_workbook_writes_detail_column(tmp_path, monkeypatch):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws["H1"] = "원주소"
-    ws["H2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    ws["H2"] = "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호"
     ws["H3"] = "주소 미상"
     wb.save(input_path)
 
@@ -624,7 +625,7 @@ def test_process_workbook_writes_detail_column(tmp_path, monkeypatch):
     result_ws = openpyxl.load_workbook(output_path).active
     assert result_ws["N1"].value == "주소검증상세"
     assert "1건" in result_ws["N2"].value
-    assert "10911" in result_ws["N2"].value
+    assert "00911" in result_ws["N2"].value
     assert result_ws["M3"].value == STATUS_NOT_FOUND
     assert result_ws["N3"].value  # 로컬 제외 사유가 기록된다
 
@@ -634,9 +635,9 @@ def _write_admin_dict(tmp_path, encoding="utf-8"):
     lines = [
         "법정동코드\t법정동명\t폐지여부",
         "1168000000\t서울특별시 강남구\t존재",
-        "1168010100\t서울특별시 강남구 역삼동\t존재",
+        "1168010100\t서울특별시 강남구 테스트동\t존재",
         "4148000000\t경기도 파주시\t존재",
-        "4148012300\t경기도 파주시 야당동\t존재",
+        "4148012300\t경기도 파주시 테스트동\t존재",
         "1101053000\t서울특별시 중구 폐지된동\t폐지",
     ]
     path.write_bytes("\n".join(lines).encode(encoding))
@@ -648,8 +649,8 @@ def test_admin_dict_loads_active_entries_and_token_ngrams(tmp_path):
 
     admin = AdminDict.load(_write_admin_dict(tmp_path))
 
-    assert admin.contains("서울특별시 강남구 역삼동")
-    assert admin.contains("강남구 역삼동")  # 시도 생략 표기
+    assert admin.contains("서울특별시 강남구 테스트동")
+    assert admin.contains("강남구 테스트동")  # 시도 생략 표기
     assert admin.contains("서울특별시 강남구")  # 도로명 주소의 시군구 검사
     assert not admin.contains("서울특별시 중구 폐지된동")
     assert not admin.contains("서울특별시 강남구 없는동")
@@ -660,7 +661,7 @@ def test_admin_dict_loads_cp949_files(tmp_path):
 
     admin = AdminDict.load(_write_admin_dict(tmp_path, encoding="cp949"))
 
-    assert admin.contains("경기도 파주시 야당동")
+    assert admin.contains("경기도 파주시 테스트동")
 
 
 def test_process_workbook_rejects_unknown_admin_district_offline(tmp_path):
@@ -672,7 +673,7 @@ def test_process_workbook_rejects_unknown_admin_district_offline(tmp_path):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws["H1"] = "원주소"
-    ws["H2"] = "서울특별시 강남구 역삼동 123-4 어떤빌라 101호"
+    ws["H2"] = "서울특별시 강남구 테스트동 123-4 어떤빌라 101호"
     ws["H3"] = "서울특별시 강남구 없는동 123-4 어떤빌라 101호"
     wb.save(input_path)
 
@@ -703,30 +704,30 @@ def test_verify_suggests_lot_variant_without_changing_status():
 
         def search(self, query: str, count: int = 5):
             self.queries.append(query)
-            if query == "경기도 파주시 야당동 57-17":
+            if query == "경기도 파주시 테스트동 12-34":
                 return SearchResult(
                     "juso",
                     1,
-                    {"roadAddr": "경기도 파주시 하우3길 22", "zipNo": "10911"},
+                    {"roadAddr": "경기도 파주시 샘플3길 22", "zipNo": "00911"},
                     {},
                 )
             return SearchResult("juso", 0, {}, {})
 
     juso = _VariantJuso()
     status, detail, correction = _verify(
-        "경기도 파주시 야당동 5717 정우펠리스 101호", "lot", juso, None
+        "경기도 파주시 테스트동 1234 샘플펠리스 101호", "lot", juso, None
     )
 
     # 변형 후보는 제안만 한다: 판정은 그대로 검색주소없음(missing).
     assert status == "missing"
-    assert "57-17" in detail
-    assert "10911" in detail
+    assert "12-34" in detail
+    assert "00911" in detail
     assert correction["type"] == "지번변형"
-    assert correction["working"] == "경기도 파주시 야당동 57-17"
+    assert correction["working"] == "경기도 파주시 테스트동 12-34"
 
 
 def _single_row_workbook(
-    tmp_path, addr="경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    tmp_path, addr="경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호"
 ):
     input_path = tmp_path / "input.xlsx"
     wb = openpyxl.Workbook()
@@ -750,7 +751,7 @@ def test_history_reuses_fresh_verdict_and_skips_api(tmp_path, monkeypatch):
             return SearchResult(
                 "juso",
                 1,
-                {"roadAddr": "경기도 파주시 하우3길 22", "zipNo": "10911"},
+                {"roadAddr": "경기도 파주시 샘플3길 22", "zipNo": "00911"},
                 {},
             )
 
@@ -804,7 +805,7 @@ def test_history_flags_verdict_change(tmp_path, monkeypatch):
     history = VerifyHistory(tmp_path / "history.sqlite", max_age_days=14)
     # 한 달 전에는 1건(verified)이었다고 기록해 둔다 → 재사용 기한이 지나 재검증된다.
     history.record(
-        "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호",
+        "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호",
         "lot",
         "verified",
         "JUSO[상세포함] 1건",
@@ -837,18 +838,18 @@ def test_corrections_report_collects_variant_hits(tmp_path, monkeypatch):
         key = "test-key"
 
         def search(self, query: str, count: int = 5):
-            if query == "경기도 파주시 야당동 57-17":
+            if query == "경기도 파주시 테스트동 12-34":
                 return SearchResult(
                     "juso",
                     1,
-                    {"roadAddr": "경기도 파주시 하우3길 22", "zipNo": "10911"},
+                    {"roadAddr": "경기도 파주시 샘플3길 22", "zipNo": "00911"},
                     {},
                 )
             return SearchResult("juso", 0, {}, {})
 
     monkeypatch.setattr("address_cleaner.excel.JusoClient", _VariantJuso)
     input_path = _single_row_workbook(
-        tmp_path, addr="경기도 파주시 야당동 5717 정우펠리스 101호"
+        tmp_path, addr="경기도 파주시 테스트동 1234 샘플펠리스 101호"
     )
     corrections_path = tmp_path / "corrections.json"
 
@@ -868,7 +869,7 @@ def test_corrections_report_collects_variant_hits(tmp_path, monkeypatch):
     report = _json.loads(corrections_path.read_text(encoding="utf-8"))
     candidate = report["candidates"][0]
     assert candidate["type"] == "지번변형"
-    assert candidate["working"] == "경기도 파주시 야당동 57-17"
+    assert candidate["working"] == "경기도 파주시 테스트동 12-34"
     assert candidate["rows"] == [2]
 
 
@@ -885,15 +886,15 @@ def test_collect_feedback_groups_failures_and_requeries(tmp_path):
         "처리상세",
     )
     # 행2: 완료 → 리포트 제외
-    ws["H2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
-    ws["I2"] = "경기도 파주시 야당동 57-17 정우펠리스 제303동 제101호"
+    ws["H2"] = "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호"
+    ws["I2"] = "경기도 파주시 테스트동 12-34 샘플펠리스 제909동 제101호"
     ws["M2"] = "완료"
     # 행3: 실패 + 예전 규칙으로 만든 I열(복층 표기 잔존) → 재정제 결과가 달라진다
     ws["H3"] = (
-        "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제1(상층하층)층 제101호"
+        "경기도 고양시 일산동구 견본동 98-7 테스트타운 제비동 제1(상층하층)층 제101호"
     )
     ws["I3"] = (
-        "경기도 고양시 일산동구 중산동 78-7 시크릿타운 제비동 제1(상층하층)층 제101호"
+        "경기도 고양시 일산동구 견본동 98-7 테스트타운 제비동 제1(상층하층)층 제101호"
     )
     ws["M3"] = "실패(우편번호미확정)"
     ws["N3"] = (
